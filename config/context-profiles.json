@@ -1,0 +1,110 @@
+{
+  "schemaVersion": "0.1.0",
+  "profiles": [
+    {
+      "id": "claude-opus-5-5",
+      "harness": "claude",
+      "name": "Opus 5.5",
+      "contextWindowTokens": 1000000,
+      "autocompactBufferTokens": 33000,
+      "capacitySource": "https://www.anthropic.com/claude-opus-5-5",
+      "capacityProvenance": "operator-confirmed; released 2026-09-22 and not yet readable from the docs table by this tool"
+    },
+    {
+      "id": "claude-opus-5",
+      "harness": "claude",
+      "name": "Opus 5",
+      "contextWindowTokens": 1000000,
+      "autocompactBufferTokens": 33000,
+      "capacitySource": "https://docs.anthropic.com/en/api/claude-on-amazon-bedrock"
+    },
+    {
+      "id": "claude-sonnet-5",
+      "harness": "claude",
+      "name": "Sonnet 5",
+      "contextWindowTokens": 1000000,
+      "autocompactBufferTokens": 33000,
+      "capacitySource": "https://docs.anthropic.com/en/docs/about-claude/models/migrating-to-claude-4"
+    },
+    {
+      "id": "claude-haiku-4-5-20251001",
+      "harness": "claude",
+      "name": "Haiku 4.5",
+      "contextWindowTokens": 200000,
+      "autocompactBufferTokens": 33000,
+      "capacitySource": "https://docs.anthropic.com/en/docs/about-claude/models/migrating-to-claude-4"
+    },
+    {
+      "id": "gpt-6-astra",
+      "harness": "codex",
+      "apiContextWindowTokens": 1050000,
+      "capacitySource": "https://developers.openai.com/api/docs/models/gpt-6-astra"
+    },
+    {
+      "id": "gpt-5.6-sol",
+      "harness": "codex",
+      "apiContextWindowTokens": 1050000,
+      "capacitySource": "https://developers.openai.com/api/docs/models/gpt-5.6-sol"
+    },
+    {
+      "id": "gpt-5.6-terra",
+      "harness": "codex",
+      "apiContextWindowTokens": 1050000,
+      "capacitySource": "https://developers.openai.com/api/docs/models/gpt-5.6-terra"
+    },
+    {
+      "id": "gpt-5.6-luna",
+      "harness": "codex",
+      "apiContextWindowTokens": 1050000,
+      "capacitySource": "https://developers.openai.com/api/docs/models/gpt-5.6-luna"
+    },
+    {
+      "id": "gpt-5.5",
+      "harness": "codex",
+      "apiContextWindowTokens": 1050000,
+      "capacitySource": "https://developers.openai.com/api/docs/models/gpt-5.5"
+    }
+  ],
+  "calibrations": [
+    {
+      "id": "claude-context-2026-09-21",
+      "harness": "claude",
+      "modelId": "claude-opus-5",
+      "modelName": "Opus 5",
+      "observedAt": "2026-09-21",
+      "source": "Claude Code /context supplied by the user",
+      "contextWindowTokens": 1000000,
+      "observedUsedTokens": 111000,
+      "observedFreeTokens": 854900,
+      "autocompactBufferTokens": 33000,
+      "inventoryBaseline": {
+        "enabledPlugins": [
+          "aws-core@agent-toolkit-for-aws",
+          "ecc@ecc",
+          "k8s-upgrade-skills@seungdo-skills",
+          "seungdo-skills@seungdo-skills"
+        ],
+        "hookCount": 15,
+        "claudeMdTokens": 254,
+        "ruleBytes": 16108,
+        "skillGroups": [
+          { "id": "agent-skills", "skillCount": 34, "metadataTokenEstimate": 2252 },
+          { "id": "aws-core@agent-toolkit-for-aws", "skillCount": 13, "metadataTokenEstimate": 1890 },
+          { "id": "ecc@ecc", "skillCount": 292, "metadataTokenEstimate": 26974 },
+          { "id": "k8s-upgrade-skills@seungdo-skills", "skillCount": 0, "metadataTokenEstimate": 0 },
+          { "id": "seungdo-skills@seungdo-skills", "skillCount": 2, "metadataTokenEstimate": 423 },
+          { "id": "user-skills", "skillCount": 24, "metadataTokenEstimate": 3916 }
+        ]
+      },
+      "categories": [
+        { "id": "systemPrompt", "label": "System prompt", "tokens": 4700 },
+        { "id": "systemTools", "label": "System tools", "tokens": 20400 },
+        { "id": "mcpTools", "label": "MCP tools", "tokens": 973, "count": 184, "unit": "tools" },
+        { "id": "customAgents", "label": "Custom agents", "tokens": 8100, "count": 97, "unit": "agents" },
+        { "id": "memoryFiles", "label": "Memory files", "tokens": 27300, "count": 40, "unit": "files" },
+        { "id": "skills", "label": "Skills", "tokens": 9800, "count": 534, "unit": "skills" },
+        { "id": "messages", "label": "Messages", "tokens": 40800 }
+      ]
+    }
+  ]
+}

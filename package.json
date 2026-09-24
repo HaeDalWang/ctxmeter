@@ -1,0 +1,39 @@
+{
+  "name": "agentlens",
+  "version": "0.1.0",
+  "private": true,
+  "description": "See what your AI coding agent loads into context before you type anything. Local, read-only, no account.",
+  "license": "MIT",
+  "type": "commonjs",
+  "bin": {
+    "agentlens": "src/cli.js"
+  },
+  "files": [
+    "src",
+    "public",
+    "config",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "claude-code",
+    "codex",
+    "kiro",
+    "context-window",
+    "mcp",
+    "tokens",
+    "observability",
+    "cli"
+  ],
+  "scripts": {
+    "audit": "node src/cli.js audit",
+    "scan": "node src/cli.js scan",
+    "telemetry": "node src/cli.js telemetry",
+    "dashboard": "node src/dashboard-server.js",
+    "test": "node --test",
+    "test:coverage": "node --test --experimental-test-coverage"
+  }
+}
