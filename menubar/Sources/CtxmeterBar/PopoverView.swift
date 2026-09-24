@@ -72,10 +72,12 @@ struct PopoverView: View {
         HStack(spacing: 8) {
             Text(refreshText).font(.system(size: 10)).foregroundStyle(.secondary)
             Spacer(minLength: 6)
-            Button("Details") { openWindow(id: DetailWindowID.value) }
+            Button("Details") {
+                ForegroundWindow.present { openWindow(id: DetailWindowID.value) }
+            }
                 .buttonStyle(.borderless).font(.system(size: 11))
             Button {
-                try? openSettings()
+                ForegroundWindow.present { openSettings() }
             } label: {
                 Image(systemName: "gearshape")
             }

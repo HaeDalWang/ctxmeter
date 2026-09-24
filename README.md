@@ -17,6 +17,27 @@ npx ctxmeter
 
 Skills, rule files, steering docs, hooks, and MCP servers all load at session start. You find out when compaction hits. One command, no config, no account, nothing leaves your machine.
 
+## Quickstart
+
+```bash
+# 1. What does my setup cost right now?
+npx ctxmeter
+
+# 2. Include MCP tool schemas, the biggest and least visible cost.
+#    This one starts your servers, so it is opt-in. See what it would run first:
+npx ctxmeter mcp-scan --dry-run
+npx ctxmeter mcp-scan --i-understand-this-launches-servers
+
+# 3. Watch live occupancy from the macOS menu bar.
+git clone https://github.com/HaeDalWang/ctxmeter && cd ctxmeter/menubar
+make install     # then launch CtxmeterBar from /Applications
+
+# Everything else
+npx ctxmeter --help
+```
+
+Three surfaces over the same measurements: a one-shot CLI audit, a menu bar app for live occupancy, and a local web dashboard for per-file detail.
+
 ## Why you might want this
 
 **You keep hitting compaction earlier than expected.** Reported in the wild: [20% of the window gone before the first message](https://github.com/anthropics/claude-code/issues/50133), [50k+ tokens for a fresh "hello"](https://github.com/anthropics/claude-code/issues/84490), [83.3k tokens immediately after `/clear`](https://www.reddit.com/r/ClaudeCode/comments/1mwxfit/), [one MCP server measured at 125,964 tokens](https://github.com/anthropics/claude-code/issues/12241). Step one is finding out which files and servers are responsible.
@@ -49,13 +70,29 @@ MCP tool schemas cost 18,813 tokens across 51 tools.
 
 Per-server timeouts, hard kills, remote servers skipped unless you opt in, and schemas discarded after counting. The result is cached so `ctxmeter` folds it into the audit.
 
-## Also included
+## The macOS menu bar app
 
-**Web dashboard** — `npx ctxmeter dashboard`, bound to `127.0.0.1:4318` only. Per-harness context maps, collapsible per-file cost, live session numbers polled while the tab is visible.
+One icon and one number in the menu bar: how full the context window of the agent you are watching actually is, refreshed every 30 seconds. Click for a per-agent breakdown, `Details` for all three side by side.
+
+<p align="center"><img src="docs/img/menubar.png" alt="CtxmeterBar popover showing Claude Code at 19.2 percent, and the detail window listing Claude Code, Codex, and Kiro with input tokens, context window, and observed time" width="860"></p>
+
+```bash
+cd menubar
+make install     # /Applications/CtxmeterBar.app
+make run         # or just run it from the build directory
+```
+
+Swift and SwiftPM only; full Xcode is not required. Agent icons are read from the vendor apps installed on your Mac, so no trademarked artwork ships in this repo. Refresh costs about 0.45% of one core at the default interval, because it reads session usage only and skips the inventory scan. [Details](menubar/README.md).
+
+## The web dashboard
+
+```bash
+npx ctxmeter dashboard        # 127.0.0.1:4318, localhost only
+```
+
+Per-harness context maps, collapsible per-file cost, and live session numbers polled while the tab is visible. This is where per-item configuration cost lives — the menu bar app deliberately shows occupancy only.
 
 <p align="center"><img src="docs/img/dashboard.png" alt="ctxmeter dashboard showing Claude Code at 192k of 1m tokens, broken down into messages, instructions, skill metadata, and autocompact buffer" width="860"></p>
-
-**macOS menu bar app** — `cd menubar && make run`. Current occupancy per agent, with vendor icons read from the apps installed on your Mac. [Details](menubar/README.md).
 
 ## What it never does
 
@@ -81,6 +118,7 @@ No prompt text, rule text, skill bodies, or credentials are copied. No network c
 | `npx ctxmeter telemetry` | current session usage as JSON, ~0.2s |
 | `npx ctxmeter dashboard` | local web dashboard |
 | `npx ctxmeter --help` | every command and flag |
+| `cd menubar && make install` | macOS menu bar app |
 
 `--home` and `--workspace` override paths on any command.
 

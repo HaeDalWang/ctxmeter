@@ -42,7 +42,7 @@ struct DetailView: View {
         Claude and Codex shares are observed input tokens divided by a known context window; \
         Kiro reports a percentage its session recorded directly. A model with no profile stays \
         unknown rather than guessed. Icons are read from the vendor apps installed on this Mac. \
-        Per-item configuration cost and the skill inventory live in npm run dashboard.
+        Per-item configuration cost and the skill inventory live in ctxmeter dashboard.
         """
     }
 }
