@@ -1,109 +1,84 @@
 # AgentLens
 
-Local, read-only observability for Claude Code, Codex, and Kiro configuration.
+**Your AI coding agent burns thousands of tokens before you type a single character. This tells you how many, and what to delete.**
 
-AgentLens answers three questions without copying prompt or secret contents:
-
-1. Which rules, skills, hooks, plugins, and steering assets exist?
-2. Which assets are active candidates versus backups, marketplace sources, or staging files?
-3. How much context did the latest local session use, and which configuration files may contribute?
-
-## Run a scan
+Skills, rule files, steering docs, hooks, and MCP servers all load at session start. You find out when compaction hits. One command, no account, nothing leaves your machine.
 
 ```bash
-npm test
-npm run scan
-npm run telemetry
-npm run dashboard
+npx agentlens
 ```
 
-The default scan writes a timestamped JSON snapshot under `.agentlens/snapshots/`.
-`npm run telemetry` prints current session usage for all three harnesses as JSON on stdout and runs no inventory scan, which makes it the cheap path for an external status display. It takes about 0.2s including Node startup, against seconds for a full scan.
-The dashboard listens only on `http://127.0.0.1:4318`, lists local snapshots, and does not start unless you run `npm run dashboard`.
-To choose the target paths explicitly:
+```
+Your agent setup costs 15,581 tokens before you type anything.
 
-```bash
-npm run scan -- --home /path/to/home --workspace /path/to/project --output ./scan.json
+Claude Code: 8,680 tokens — 0.9% of 1,000,000
+      5,728  Skill metadata listed at startup
+             35 skills; largest group user-skills at 3,268 tokens
+      2,952  Global instructions and rules
+             CLAUDE.md + 6 rule files
+  observed latest input: 188,381 tokens
+  not measured: 2 MCP servers, 16 hooks
+
+Kiro: 4,070 tokens — 0.4% of 1,000,000
+      2,275  Steering documents
+             6 steering files
+      1,795  Skill metadata listed at startup
+             13 skills; largest group user-skills at 1,795 tokens
+
+Codex: 2,831 tokens — 1.1% of 258,400
+      2,245  Skill metadata listed at startup
+             18 skills; largest group user-and-system-skills at 1,340 tokens
+        586  Global instructions
+             AGENTS.md
+  observed latest input: 69,784 tokens
+  not measured: 5 MCP servers, 10 hooks
 ```
 
-## What the snapshot contains
+Works with **Claude Code**, **Codex**, and **Kiro** in one view. No configuration.
 
-- Claude Code: enabled plugin IDs, registered hook count, `CLAUDE.md` and rules sizes, skill metadata estimates
-- Claude Code model catalog: locally offered model IDs, display names, and the currently selected model
-- Claude Code workspace session telemetry: first/latest input tokens, cache reads, output tokens, model IDs, and timestamps from the newest local project JSONL
-- Codex: registered hook count, configured/enabled plugin and MCP counts, `AGENTS.md` size, skill metadata estimates including enabled plugin skills
-- Codex model and session telemetry: visible local models, effective/max context windows, first/latest input context, cache/output/reasoning totals, and compaction count
-- Kiro: custom agent, Power, steering, regular skill, separate Crew-skill counts, and v2 hook definitions from `~/.kiro/hooks` plus the workspace's `.kiro/hooks`
-- Kiro session telemetry: observed context **percentage** only. Kiro does not record absolute token counts locally, so AgentLens reports first/latest `context_usage_percentage`, the sample count, and credits, and leaves token totals unmeasured rather than deriving them from the percentage. Both stores are supported — `~/.kiro/sessions/<workspace>/sess_*/messages.jsonl` (IDE/ACP) and `~/.kiro/sessions/cli/*.json` (CLI) — and the newest matching session wins. Prompt-history files (`*.history`) are never read.
-- Kiro Crew usage: credits total, record count, and date range, flagged `workspaceAttributable: false` because Crew records are aggregated per day and surface rather than per workspace
+## Why you might want this
 
-When the winning Kiro store records no context window, AgentLens reuses a window observed for the same model in another local Kiro CLI session and marks it `contextWindowSource: "peer-session"`. That value is read from Kiro's own `model_info`, not guessed.
-- Workspace instruction candidates
-- Non-loadable asset counts: backups, marketplace sources, and temporary staging files
+**You keep hitting compaction earlier than expected.** Reported cases include [20% of the window gone before the first message](https://github.com/anthropics/claude-code/issues/50133), [50k+ tokens for a fresh "hello"](https://github.com/anthropics/claude-code/issues/84490), and [83.3k tokens immediately after `/clear`](https://www.reddit.com/r/ClaudeCode/comments/1mwxfit/). If that is you, the first step is finding out which files are responsible.
 
-Every discovered skill is also emitted as an asset record under its `skillGroups[].assets` array:
+**You installed a plugin bundle and forgot.** A single skill group can list hundreds of skills, and every one of them contributes frontmatter at startup. AgentLens ranks them so the biggest one is the first line you read.
 
-- declared skill name and group-relative path
-- discovery status
-- full file size and frontmatter-only metadata estimate
-- modification timestamp and SHA-256 fingerprint for future snapshot diffs
+**You run more than one agent.** Claude Code, Codex, and Kiro each keep their own skills, rules, hooks, and MCP config in their own layout. This reads all three and puts them side by side.
 
-Asset records intentionally omit the skill description and body text. This keeps the inventory useful for analysis while avoiding prompt-content replication.
+## Also included
 
-Symlinked assets are followed. Sharing one skill or rule file across harnesses by symlink is common, and the harness loads it, so AgentLens counts it. Directory symlinks are followed with realpath-based cycle and duplicate detection, and broken symlinks are skipped rather than aborting the scan. Tracking begins only after a symlink is followed, so link-free trees keep their original walk cost.
+**Web dashboard** — `npm run dashboard`, serves on `127.0.0.1:4318` only. Per-harness context maps, a collapsible per-file cost list, and live session numbers polled while the tab is visible.
 
-Skill bodies are not counted as baseline context. AgentLens estimates only YAML frontmatter bytes for skill metadata, because full skill bodies are typically loaded on demand.
+**macOS menu bar app** — `cd menubar && make run`. Shows current occupancy per agent with vendor icons read from your installed apps. See [menubar/README.md](menubar/README.md).
 
-## Context budget and calibration
+## What it reads, and what it never does
 
-The first dashboard panel is model-aware and separates three kinds of numbers:
+It reads local configuration and session files under `~/.claude`, `~/.codex`, and `~/.kiro`.
 
-- **Observed input:** numeric usage from the latest local Claude or Codex session JSONL
-- **Cross-model proxy:** a recorded session's input projected onto another selected model's context window
-- **File estimate:** static byte-based fallback when no local session usage exists
+It does not copy prompt text, rule text, skill bodies, or credentials. It does not open a network connection, run a background watcher, or use a database. Prompt-history files are never opened. Snapshots contain paths, counts, byte estimates, and numeric token totals only — the test suite asserts this.
 
-Choose `Claude Code` or `Codex` above the model row. Claude reads numeric usage from the newest JSONL for the scanned workspace; Codex reads numeric telemetry from the newest local session JSONL belonging to that workspace and model metadata from `models_cache.json`. Prompt, response, and compaction text are never copied into a snapshot.
+## What it cannot tell you
 
-The checked-in [`config/context-profiles.json`](config/context-profiles.json) retains a `/context` sample observed on 2026-09-21 for Claude Opus 5 as a fallback when no local session usage exists. The dashboard does not require `/context` for observed totals.
+**MCP tool schemas are not measured.** They are the largest cost reported in the wild — [one server measured at 125,964 tokens](https://github.com/anthropics/claude-code/issues/12241) — and they are injected at runtime and never written to disk. Measuring them would mean launching your configured servers, which contradicts the read-only promise. It is deliberately left as `not measured` rather than guessed.
 
-That fallback calibration records the inventory observed at the time. If the inventory changes, AgentLens does not present its old category totals as current. Live session totals remain available independently.
+**Static figures are bytes ÷ 4.** A heuristic, not a tokenizer. Session totals for Claude and Codex are observed exactly; Kiro records only a percentage, so no token count is derived from it.
 
-The default view shows the latest input context. The first-response toggle includes the first user prompt for both harnesses. If the first response used a different model, its value is labeled as a proxy. Claude's context map reserves the configured autocompact buffer as an estimate of available working space.
+**A model with no known capacity stays unknown.** No context window is ever guessed.
 
-Known model capacities are sourced from Anthropic documentation. A locally discovered model without an exact matching profile remains visible with `용량 미확인`; AgentLens does not guess a capacity.
+## Commands
 
-Codex's budget denominator is the active session's reported context window when available, otherwise the installed CLI catalog's `context_window × effective_context_window_percent`. The catalog's `max_context_window` is shown separately as a local catalog ceiling. These are not the model's published API limit: the official API model pages currently list 1,050,000 tokens for GPT-6 Astra, GPT-5.6 Sol/Terra/Luna, and GPT-5.5. The dashboard displays that API specification separately with a source link. Codex configuration also supports model-context and auto-compaction overrides.
+| Command | What it does |
+|---|---|
+| `npx agentlens` | audit; prints the ranked startup cost |
+| `npx agentlens scan` | writes a full inventory snapshot as JSON |
+| `npx agentlens telemetry` | current session usage as JSON, ~0.2s, no inventory scan |
+| `npm run dashboard` | local web dashboard |
 
-## Important limits
+`--home` and `--workspace` override the paths for any command.
 
-`metadataTokenEstimate` is a byte-based heuristic, not the model's exact token count. Claude and Codex JSONL totals are observed, but neither attributes input tokens to system prompt, tools, skills, and messages separately; AgentLens subtracts static instruction/skill estimates and labels the remainder as unclassified. A Claude workspace without a local JSONL keeps the fallback file estimate or calibration. Historical snapshots update when `npm run scan` runs, while an open dashboard refreshes current numeric telemetry separately.
+## Requirements
 
-## Dashboard
+Node 20+. The menu bar app needs macOS 14+ and the Swift toolchain; full Xcode is not required.
 
-The dashboard is intentionally local and dependency-free. It provides:
+## License
 
-- model tabs populated from Claude's local model catalog
-- agent tabs for Claude Code, Codex, and Kiro, each enabled only when a local session for the scanned workspace exists
-- Codex model tabs populated from `models_cache.json`, separating the active local context, catalog base/ceiling, and published API model capacity
-- Codex first/latest context, cached input, output, reasoning, thread cumulative usage, and compaction count
-- Claude first/latest context, cached input, and output from the scanned workspace's latest local session
-- low-overhead live mode: 10-second polling only while the Claude, Codex, or Kiro panel is selected and the browser tab is visible
-- a five-second server cache that avoids duplicate JSONL parsing across closely spaced requests
-- first-session and observed-session modes
-- a 100-cell context map with used categories, free space, and autocompact reserve
-- category rows for system prompt, system tools, MCP tools, custom agents, memory files, skills, and messages
-- a collapsible configuration-cost list for global/workspace instructions, individual Claude rule files, agent definitions, skill groups, hooks, MCP servers, and Codex plugins
-- counts, token totals, percentages, and confidence labels for every category
-- a three-harness overview for skills, hooks, and estimated skill metadata
-- snapshot selector that refreshes every ten seconds while the page is visible; it follows new scans only if the viewer was already on the newest snapshot
-- harness filter and inventory search
-- collapsible inventory groups: large groups such as ECC stay closed until selected, while search results expand automatically
-- asset detail: source group, relative path, status, metadata estimate, and body size
-
-It does not use a background watcher, database, Docker container, or external network request.
-
-Live mode is demand-driven rather than a background watcher. Hiding the browser tab stops polling; returning to a visible Claude or Codex panel refreshes immediately. The `LIVE` badge shows the timestamp of the most recent local token record.
-
-Snapshots contain paths, counts, IDs, byte estimates, and numeric session usage only. They do not persist settings values, prompt text, rule text, skill text, or credentials.
-
-Configuration-cost rows use file bytes divided by four as a rough estimate. `세션 시작` marks global instruction files, `목록 메타데이터` marks discovered skill metadata, and `조건부 / 호출 시` marks files that may be loaded for particular work. Hooks, MCP servers, and plugins are listed with counts but show `미측정` because their configuration file sizes do not reveal prompt tokens or later tool output. These rows overlap the context budget categories and must not be added to the observed input total.
+MIT. See [LICENSE](LICENSE). Detailed behaviour in [docs/reference.md](docs/reference.md).

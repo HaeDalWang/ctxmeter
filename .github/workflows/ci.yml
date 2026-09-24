@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  node:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+      - run: node --test
+      - name: Audit runs on a machine with no agent configuration
+        run: node src/cli.js audit --home "$(mktemp -d)"
+
+  swift:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v5
+      - run: swift build -c release
+        working-directory: menubar
+      - run: swift test
+        working-directory: menubar
