@@ -7,6 +7,7 @@ const { scanEnvironment, scanClaudeRuntime, scanCodexRuntime, scanKiroRuntime } 
 const { auditReport, formatAudit } = require('./audit');
 const { DEFAULT_PORT, startDashboard } = require('./dashboard-server');
 const { describeDryRun, formatMcpCost, mcpServerEntries, measureMcpCost } = require('./mcp-cost');
+const { applyPlan, fixProposals, formatProposals, planProposal } = require('./fix');
 const { createStatusLine } = require('./status-line');
 const packageManifest = require('../package.json');
 
@@ -30,6 +31,7 @@ function usage() {
   return [
     'Usage: ctxmeter [audit]    [--home <dir>] [--workspace <dir>]',
     '       ctxmeter mcp-scan   [--dry-run] [--allow-remote] [--timeout <ms>]',
+    '       ctxmeter fix        [--apply <target>] [--home <dir>] [--workspace <dir>]',
     '       ctxmeter dashboard  [--port <n>] [--home <dir>] [--workspace <dir>]',
     '       ctxmeter scan       [--home <dir>] [--workspace <dir>] [--output <file>]',
     '       ctxmeter telemetry  [--home <dir>] [--workspace <dir>]',
@@ -37,17 +39,20 @@ function usage() {
     '',
     'audit     (default) prints what your agent setup costs before you type anything.',
     'mcp-scan  measures MCP tool schema cost. This one starts your servers; see --dry-run.',
+    'fix       lists switches that would free tokens. The only command that writes to',
+    '          your config, and only with --apply <target>. Backs up first and prints',
+    '          the undo command.',
     'dashboard serves a local web view of snapshots and live session usage.',
     'scan      writes a full metadata-only inventory snapshot.',
     'telemetry prints current session usage as JSON without an inventory scan.',
     '',
-    'No command copies prompt, rule, skill, or secret contents, and nothing leaves this machine.',
+    'Nothing leaves this machine. Prompt, rule, skill, and secret contents are never copied.',
   ].join('\n');
 }
 
-const VALUE_FLAGS = ['--home', '--workspace', '--output', '--timeout', '--port'];
+const VALUE_FLAGS = ['--home', '--workspace', '--output', '--timeout', '--port', '--apply'];
 const BOOLEAN_FLAGS = ['--dry-run', '--allow-remote', '--i-understand-this-launches-servers'];
-const COMMANDS = ['audit', 'dashboard', 'help', 'mcp-scan', 'scan', 'telemetry', 'version'];
+const COMMANDS = ['audit', 'dashboard', 'fix', 'help', 'mcp-scan', 'scan', 'telemetry', 'version'];
 // A user who cannot get help cannot get anything else, so these short-circuit
 // parsing before an unrelated bad flag can turn into an error.
 const HELP_ALIASES = ['--help', '-h', 'help'];
@@ -210,12 +215,55 @@ async function runDashboard(options, currentDirectory) {
   return { server, summary: `ctxmeter dashboard: ${url}\nPress Control-C to stop.` };
 }
 
+/// Dry run by default. Writing needs an explicit target, so a mistyped command can
+/// never change a config file.
+function runFix(options, currentDirectory) {
+  const home = options.home || os.homedir();
+  const workspace = path.resolve(options.workspace || currentDirectory);
+  const status = createStatusLine();
+  status.show('Looking for switches that would free tokens…');
+  let proposals;
+  try {
+    proposals = fixProposals({ home, snapshot: scanEnvironment({ home, workspace }), mcpCost: readMcpCache(workspace) });
+  } finally {
+    status.clear();
+  }
+
+  if (!options.apply) return { summary: formatProposals(proposals) };
+
+  const proposal = proposals.find((candidate) => candidate.target === options.apply);
+  if (!proposal) {
+    throw new Error([
+      `${options.apply} is not one of the switches ctxmeter can flip.`,
+      '',
+      proposals.length ? 'Available targets:' : 'There are no available targets right now. Run ctxmeter fix to see why.',
+      ...proposals.map((candidate) => `  ${candidate.target}`),
+    ].join('\n'));
+  }
+
+  const result = applyPlan(planProposal(proposal));
+  return {
+    summary: [
+      `Switched off ${result.target}, freeing about ${Number(result.tokens).toLocaleString('en-US')} tokens at startup.`,
+      '',
+      `  changed  ${result.file}`,
+      `  backup   ${result.backup}`,
+      '',
+      'To undo:',
+      `  ${result.rollback}`,
+      '',
+      'Restart the agent for the change to take effect, then rerun ctxmeter to confirm.',
+    ].join('\n'),
+  };
+}
+
 async function run(argv = process.argv.slice(2), currentDirectory = process.cwd()) {
   const options = parseArgs(argv);
   if (options.command === 'help') return { summary: usage() };
   if (options.command === 'version') return { summary: packageManifest.version };
   if (options.command === 'dashboard') return runDashboard(options, currentDirectory);
   if (options.command === 'mcp-scan') return runMcpScan(options);
+  if (options.command === 'fix') return runFix(options, currentDirectory);
   if (options.command === 'audit') {
     if (options.output) throw new Error('audit writes to stdout; --output is not supported');
     const workspace = path.resolve(options.workspace || currentDirectory);

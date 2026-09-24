@@ -5,6 +5,8 @@
 // from local files is declared as unmeasured rather than estimated, because the
 // loudest real cost — MCP tool schemas — is not readable from disk at all.
 
+const { MEASURED_STATUS } = require('./mcp-cost');
+
 const HARNESS_LABELS = { claude: 'Claude Code', codex: 'Codex', kiro: 'Kiro' };
 
 function bytesToTokens(bytes) {
@@ -47,7 +49,7 @@ function skillFinding(harness) {
 /// A cached `mcp-scan` turns the loudest unmeasured cost into a real number.
 function mcpFinding(harnessId, mcpCost) {
   const measured = (mcpCost?.servers || [])
-    .filter((server) => server.harness === harnessId && server.status === 'measured');
+    .filter((server) => server.harness === harnessId && server.status === MEASURED_STATUS);
   if (!measured.length) return null;
   const tokens = measured.reduce((total, server) => total + (server.estimatedTokens || 0), 0);
   const toolCount = measured.reduce((total, server) => total + (server.toolCount || 0), 0);
@@ -65,7 +67,7 @@ function mcpFinding(harnessId, mcpCost) {
 function unmeasuredItems(harnessId, harness, mcpCost) {
   const items = [];
   const measuredNames = new Set((mcpCost?.servers || [])
-    .filter((server) => server.harness === harnessId && server.status === 'measured')
+    .filter((server) => server.harness === harnessId && server.status === MEASURED_STATUS)
     .map((server) => server.name));
   const mcpCount = Math.max((harness.configuredMcpServerCount || 0) - measuredNames.size, 0);
   if (mcpCount) {

@@ -51,7 +51,7 @@ test('prints usage on stdout and exits zero when help is requested', () => {
   assert.equal(result.stderr, '');
   assert.match(result.stdout, /Usage: ctxmeter/);
   assert.match(result.stdout, /mcp-scan/);
-  assert.match(result.stdout, /nothing leaves this machine/);
+  assert.match(result.stdout, /Nothing leaves this machine/);
 });
 
 test('reports the published version so bug reports can name a build', () => {
@@ -111,4 +111,55 @@ test('dashboard starts on an ephemeral port and reports its address', async () =
   } finally {
     await new Promise((resolve) => result.server.close(resolve));
   }
+});
+
+
+test('fix is a known command and parses its apply target', () => {
+  // Arrange & Act
+  const dry = parseArgs(['fix']);
+  const apply = parseArgs(['fix', '--apply', 'codex/obsidian']);
+
+  // Assert
+  assert.equal(dry.command, 'fix');
+  assert.equal(dry.apply, undefined);
+  assert.equal(apply.apply, 'codex/obsidian');
+});
+
+test('fix without --apply changes nothing and says so', () => {
+  // Arrange
+  const home = path.join(__dirname, 'fixtures-empty-home');
+
+  // Act
+  const result = runCli(['fix', '--home', home]);
+
+  // Assert
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /Nothing has been changed|Nothing here can be switched off/);
+});
+
+test('--apply with no target lists the targets instead of guessing one', () => {
+  // Arrange & Act
+  const result = runCli(['fix', '--apply']);
+
+  // Assert
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Missing value for --apply/);
+});
+
+test('--apply with an unknown target names what is available', () => {
+  // Arrange & Act
+  const result = runCli(['fix', '--apply', 'nope/not-a-thing']);
+
+  // Assert
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /nope\/not-a-thing/);
+});
+
+test('usage documents fix and warns that it writes', () => {
+  // Arrange & Act
+  const result = runCli(['--help']);
+
+  // Assert
+  assert.match(result.stdout, /fix/);
+  assert.match(result.stdout, /only command that writes|writes to your config/i);
 });

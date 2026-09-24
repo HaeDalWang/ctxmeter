@@ -31,6 +31,10 @@ function toolSchemaBytes(tools) {
   return Buffer.byteLength(JSON.stringify(shown));
 }
 
+/// The one status that means a server answered and its schemas were counted.
+/// Shared so audit.js and fix.js cannot drift from what this module emits.
+const MEASURED_STATUS = 'measured';
+
 function readJson(file) {
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -197,7 +201,7 @@ function measureStdioServer(entry, timeoutMs) {
             finish({ status: 'failed', detail: 'no tools in response' });
             return;
           }
-          finish({ status: 'measured', toolCount: tools.length, schemaBytes: toolSchemaBytes(tools) });
+          finish({ status: MEASURED_STATUS, toolCount: tools.length, schemaBytes: toolSchemaBytes(tools) });
           return;
         }
       }
@@ -233,7 +237,7 @@ async function measureHttpServer(entry, timeoutMs) {
       .at(-1);
     const tools = payload ? JSON.parse(payload).result?.tools : null;
     if (!Array.isArray(tools)) return { status: 'failed', detail: 'no tools in response' };
-    return { status: 'measured', toolCount: tools.length, schemaBytes: toolSchemaBytes(tools) };
+    return { status: MEASURED_STATUS, toolCount: tools.length, schemaBytes: toolSchemaBytes(tools) };
   } catch (error) {
     return { status: error.name === 'AbortError' ? 'timeout' : 'failed', detail: error.name };
   } finally {
@@ -298,4 +302,4 @@ function formatMcpCost(result) {
   return lines.join('\n');
 }
 
-module.exports = { describeDryRun, formatMcpCost, mcpServerEntries, measureMcpCost, toolSchemaBytes };
+module.exports = { MEASURED_STATUS, describeDryRun, formatMcpCost, mcpServerEntries, measureMcpCost, toolSchemaBytes };
