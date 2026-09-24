@@ -60,22 +60,36 @@ function createDashboardServer({ snapshotDirectory, publicDirectory, contextProf
   });
 }
 
-if (require.main === module) {
-  const root = process.cwd();
+const DEFAULT_PORT = 4318;
+const REFRESH_INTERVAL_MS = 5_000;
+
+/// Assembles the server from a workspace root. Shared by the CLI `dashboard`
+/// command and by running this file directly, so both bind the same readers.
+function startDashboard({ root = process.cwd(), home = os.homedir(), port = DEFAULT_PORT } = {}) {
   const server = createDashboardServer({
     snapshotDirectory: path.join(root, '.ctxmeter', 'snapshots'),
-    publicDirectory: path.join(root, 'public'),
-    contextProfilesFile: path.join(root, 'config', 'context-profiles.json'),
-    claudeRuntimeReader: createClaudeRuntimeReader({ home: os.homedir(), workspace: root, minRefreshMs: 5_000 }),
-    codexRuntimeReader: createCodexRuntimeReader({ home: os.homedir(), workspace: root, minRefreshMs: 5_000 }),
-    kiroRuntimeReader: createKiroRuntimeReader({ home: os.homedir(), workspace: root, minRefreshMs: 5_000 }),
+    publicDirectory: path.join(__dirname, '..', 'public'),
+    contextProfilesFile: path.join(__dirname, '..', 'config', 'context-profiles.json'),
+    claudeRuntimeReader: createClaudeRuntimeReader({ home, workspace: root, minRefreshMs: REFRESH_INTERVAL_MS }),
+    codexRuntimeReader: createCodexRuntimeReader({ home, workspace: root, minRefreshMs: REFRESH_INTERVAL_MS }),
+    kiroRuntimeReader: createKiroRuntimeReader({ home, workspace: root, minRefreshMs: REFRESH_INTERVAL_MS }),
   });
-  const port = Number(process.env.CTXMETER_PORT || 4318);
-  server.once('error', (error) => {
-    process.stderr.write(`${formatListenError(error, port)}\n`);
-    process.exitCode = 1;
+  return new Promise((resolve, reject) => {
+    server.once('error', (error) => reject(new Error(formatListenError(error, port))));
+    server.listen(port, '127.0.0.1', () => {
+      resolve({ server, url: `http://127.0.0.1:${server.address().port}` });
+    });
   });
-  server.listen(port, '127.0.0.1', () => process.stdout.write(`ctxmeter dashboard: http://127.0.0.1:${port}\n`));
 }
 
-module.exports = { createDashboardServer, formatListenError, listSnapshots };
+if (require.main === module) {
+  const port = Number(process.env.CTXMETER_PORT || DEFAULT_PORT);
+  startDashboard({ port })
+    .then(({ url }) => process.stdout.write(`ctxmeter dashboard: ${url}\n`))
+    .catch((error) => {
+      process.stderr.write(`${error.message}\n`);
+      process.exitCode = 1;
+    });
+}
+
+module.exports = { DEFAULT_PORT, createDashboardServer, formatListenError, listSnapshots, startDashboard };

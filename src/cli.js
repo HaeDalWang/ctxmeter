@@ -5,7 +5,10 @@ const os = require('node:os');
 const path = require('node:path');
 const { scanEnvironment, scanClaudeRuntime, scanCodexRuntime, scanKiroRuntime } = require('./scanner');
 const { auditReport, formatAudit } = require('./audit');
+const { DEFAULT_PORT, startDashboard } = require('./dashboard-server');
 const { describeDryRun, formatMcpCost, mcpServerEntries, measureMcpCost } = require('./mcp-cost');
+const { createStatusLine } = require('./status-line');
+const packageManifest = require('../package.json');
 
 const PROFILES_FILE = path.join(__dirname, '..', 'config', 'context-profiles.json');
 const MCP_CACHE_NAME = 'mcp-cost.json';
@@ -26,26 +29,37 @@ function readMcpCache(workspace) {
 function usage() {
   return [
     'Usage: ctxmeter [audit]    [--home <dir>] [--workspace <dir>]',
+    '       ctxmeter mcp-scan   [--dry-run] [--allow-remote] [--timeout <ms>]',
+    '       ctxmeter dashboard  [--port <n>] [--home <dir>] [--workspace <dir>]',
     '       ctxmeter scan       [--home <dir>] [--workspace <dir>] [--output <file>]',
     '       ctxmeter telemetry  [--home <dir>] [--workspace <dir>]',
-    '       ctxmeter mcp-scan   [--dry-run] [--allow-remote] [--timeout <ms>]',
+    '       ctxmeter --help | --version',
     '',
     'audit     (default) prints what your agent setup costs before you type anything.',
+    'mcp-scan  measures MCP tool schema cost. This one starts your servers; see --dry-run.',
+    'dashboard serves a local web view of snapshots and live session usage.',
     'scan      writes a full metadata-only inventory snapshot.',
     'telemetry prints current session usage as JSON without an inventory scan.',
-    'mcp-scan  measures MCP tool schema cost. This one starts your servers; see --dry-run.',
     '',
     'No command copies prompt, rule, skill, or secret contents, and nothing leaves this machine.',
   ].join('\n');
 }
 
-const VALUE_FLAGS = ['--home', '--workspace', '--output', '--timeout'];
+const VALUE_FLAGS = ['--home', '--workspace', '--output', '--timeout', '--port'];
 const BOOLEAN_FLAGS = ['--dry-run', '--allow-remote', '--i-understand-this-launches-servers'];
+const COMMANDS = ['audit', 'dashboard', 'help', 'mcp-scan', 'scan', 'telemetry', 'version'];
+// A user who cannot get help cannot get anything else, so these short-circuit
+// parsing before an unrelated bad flag can turn into an error.
+const HELP_ALIASES = ['--help', '-h', 'help'];
+const VERSION_ALIASES = ['--version', '-v', 'version'];
 
 function parseArgs(argv) {
+  if (argv.some((argument) => HELP_ALIASES.includes(argument))) return { command: 'help' };
+  if (argv.some((argument) => VERSION_ALIASES.includes(argument))) return { command: 'version' };
   const [first, ...rest] = argv;
   // Bare `npx ctxmeter` runs the audit, so the front door needs no arguments.
-  const hasCommand = first !== undefined && !first.startsWith('--');
+  const hasCommand = first !== undefined && !first.startsWith('-');
+  if (hasCommand && !COMMANDS.includes(first)) throw new Error(`Unknown command: ${first}\n\n${usage()}`);
   const options = { command: hasCommand ? first : 'audit' };
   const flags = hasCommand ? rest : argv;
   for (let index = 0; index < flags.length; index += 1) {
@@ -167,11 +181,18 @@ async function runMcpScan(options) {
       'Remote servers are skipped unless you also pass --allow-remote.',
     ].join('\n'));
   }
-  const result = await measureMcpCost(entries, {
-    home,
-    timeoutMs: Number(options.timeout) > 0 ? Number(options.timeout) : 5_000,
-    allowRemote: options['allow-remote'] === true,
-  });
+  const status = createStatusLine();
+  status.show(`Starting ${entries.length} MCP server${entries.length === 1 ? '' : 's'} to read their tool lists…`);
+  let result;
+  try {
+    result = await measureMcpCost(entries, {
+      home,
+      timeoutMs: Number(options.timeout) > 0 ? Number(options.timeout) : 5_000,
+      allowRemote: options['allow-remote'] === true,
+    });
+  } finally {
+    status.clear();
+  }
   const workspace = path.resolve(options.workspace || process.cwd());
   const cacheFile = mcpCachePath(workspace);
   fs.mkdirSync(path.dirname(cacheFile), { recursive: true });
@@ -179,23 +200,48 @@ async function runMcpScan(options) {
   return { summary: `${formatMcpCost(result)}\n\nCached to ${path.relative(workspace, cacheFile)}; audit will include it.` };
 }
 
+async function runDashboard(options, currentDirectory) {
+  const port = Number(options.port);
+  const { server, url } = await startDashboard({
+    root: path.resolve(options.workspace || currentDirectory),
+    home: options.home || os.homedir(),
+    port: Number.isFinite(port) ? port : DEFAULT_PORT,
+  });
+  return { server, summary: `ctxmeter dashboard: ${url}\nPress Control-C to stop.` };
+}
+
 async function run(argv = process.argv.slice(2), currentDirectory = process.cwd()) {
   const options = parseArgs(argv);
+  if (options.command === 'help') return { summary: usage() };
+  if (options.command === 'version') return { summary: packageManifest.version };
+  if (options.command === 'dashboard') return runDashboard(options, currentDirectory);
   if (options.command === 'mcp-scan') return runMcpScan(options);
   if (options.command === 'audit') {
     if (options.output) throw new Error('audit writes to stdout; --output is not supported');
     const workspace = path.resolve(options.workspace || currentDirectory);
-    const snapshot = scanEnvironment({ home: options.home, workspace });
-    return { summary: formatAudit(auditReport(snapshot, readProfiles(), readMcpCache(workspace))) };
+    const status = createStatusLine();
+    status.show('Measuring Claude Code, Codex, and Kiro startup context…');
+    try {
+      const snapshot = scanEnvironment({ home: options.home, workspace });
+      return { summary: formatAudit(auditReport(snapshot, readProfiles(), readMcpCache(workspace))) };
+    } finally {
+      status.clear();
+    }
   }
   if (options.command === 'telemetry') {
     if (options.output) throw new Error('telemetry writes to stdout; --output is not supported');
     return { json: telemetryReport(options, currentDirectory) };
   }
-  if (options.command !== 'scan') throw new Error(usage());
   const workspace = path.resolve(options.workspace || currentDirectory);
   const output = resolveOutput(workspace, options.output);
-  const snapshot = scanEnvironment({ home: options.home, workspace });
+  const status = createStatusLine();
+  status.show('Building a metadata-only inventory…');
+  let snapshot;
+  try {
+    snapshot = scanEnvironment({ home: options.home, workspace });
+  } finally {
+    status.clear();
+  }
   fs.mkdirSync(path.dirname(output), { recursive: true });
   fs.writeFileSync(output, `${JSON.stringify(snapshot, null, 2)}\n`);
   return { output, summary: formatSummary(snapshot, output) };
