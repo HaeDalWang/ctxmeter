@@ -4,6 +4,14 @@
   "private": false,
   "description": "See what your AI coding agent loads into context before you type anything. Local, read-only, no account.",
   "license": "MIT",
+  "homepage": "https://github.com/HaeDalWang/ctxmeter",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/HaeDalWang/ctxmeter.git"
+  },
+  "bugs": {
+    "url": "https://github.com/HaeDalWang/ctxmeter/issues"
+  },
   "type": "commonjs",
   "bin": {
     "ctxmeter": "src/cli.js"
