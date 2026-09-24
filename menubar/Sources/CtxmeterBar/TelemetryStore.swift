@@ -51,6 +51,8 @@ final class TelemetryStore {
     /// The full three-harness summary, shown on hover rather than in the bar.
     var summaryLabel: String { Format.menuBarLabel(report) }
 
+    var tooltip: String { Format.menuBarTooltip(report) }
+
     /// The bundled copy of the Node CLI, staged by `make bundle`.
     var scriptPath: String {
         Bundle.main.resourceURL?.appendingPathComponent("ctxmeter/src/cli.js").path ?? ""

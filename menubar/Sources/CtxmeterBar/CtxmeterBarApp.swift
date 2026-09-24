@@ -12,7 +12,14 @@ struct CtxmeterBarApp: App {
             // One icon and one number. Three percentages crowded the menu bar,
             // so overview collapses to whichever harness is closest to its limit
             // and the full summary moves to the hover tooltip.
+            //
+            // The gauge glyph leads because a vendor icon plus a percentage is
+            // what several agent monitors look like, and telling them apart at a
+            // glance was a real problem.
             HStack(spacing: 3) {
+                Image(systemName: Format.menuBarSymbol)
+                    .imageScale(.small)
+                    .foregroundStyle(.secondary)
                 if let harness = store.menuBarFocus {
                     AgentIconView(harness: harness, size: 16)
                 } else {
@@ -20,8 +27,8 @@ struct CtxmeterBarApp: App {
                 }
                 Text(store.menuBarText).monospacedDigit()
             }
-            .help(store.summaryLabel)
-            .accessibilityLabel(store.summaryLabel)
+            .help(store.tooltip)
+            .accessibilityLabel(store.tooltip)
         }
         .menuBarExtraStyle(.window)
 

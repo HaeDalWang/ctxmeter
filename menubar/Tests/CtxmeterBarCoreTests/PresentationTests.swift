@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 
@@ -118,4 +119,36 @@ private let report = TelemetryReport(
         #expect(!AgentAppLocator.fallbackSymbol(for: harness).isEmpty)
     }
     #expect(AgentAppLocator.resolve(for: .kiro, exists: { _ in false }) == nil)
+}
+
+
+// Several agent monitors render a vendor icon beside a percentage, and the
+// operator could not tell which menu bar item belonged to ctxmeter. Hovering has
+// to answer that, so the tooltip names the tool in every state.
+@Test func theTooltipNamesTheToolSoItCanBeToldApartFromOtherMonitors() {
+    #expect(Format.menuBarTooltip(report).hasPrefix("ctxmeter"))
+    #expect(Format.menuBarTooltip(report).contains("CC 19%"))
+}
+
+@Test func theTooltipStillNamesTheToolWithNothingObserved() {
+    #expect(Format.menuBarTooltip(nil).hasPrefix("ctxmeter"))
+}
+
+@Test func theTooltipExplainsWhatTheNumberMeasures() {
+    // "19%" is ambiguous next to a quota monitor showing "96%", where high is good
+    // and here high is bad. The tooltip has to say which direction it runs.
+    #expect(Format.menuBarTooltip(nil).lowercased().contains("context"))
+}
+
+@Test func aGaugeGlyphMarksTheItemInEveryState() {
+    #expect(!Format.menuBarSymbol.isEmpty)
+}
+
+
+// A symbol name that does not exist on the running OS renders as nothing, so the
+// glyph meant to identify the item would be silently absent. This resolves it the
+// same way Image(systemName:) does.
+@Test func theGaugeGlyphResolvesToARealSymbolOnThisSystem() throws {
+    let image = NSImage(systemSymbolName: Format.menuBarSymbol, accessibilityDescription: nil)
+    #expect(image != nil, "\(Format.menuBarSymbol) is not an SF Symbol on this OS")
 }

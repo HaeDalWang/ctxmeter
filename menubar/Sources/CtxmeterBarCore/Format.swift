@@ -61,6 +61,19 @@ public enum Format {
         return "\(Int(percent.rounded()))%"
     }
 
+    /// The glyph that marks this item as ctxmeter's. Several agent monitors render
+    /// a vendor icon beside a percentage, so the icon alone does not identify the
+    /// app — the operator genuinely could not tell theirs from CodexBar's.
+    public static let menuBarSymbol = "gauge.medium"
+
+    /// What hovering the menu bar item says. Names the tool, then gives the full
+    /// summary that is too wide to display. It also states what the number
+    /// measures: a neighbouring quota monitor reads high-is-good, and this reads
+    /// high-is-bad, so the percentage alone is ambiguous.
+    public static func menuBarTooltip(_ report: TelemetryReport?) -> String {
+        "ctxmeter · context window used\n\(menuBarLabel(report))"
+    }
+
     public static func relativeAge(_ observedAt: Date?, now: Date = Date()) -> String {
         guard let observedAt else { return "no record" }
         let seconds = Int(now.timeIntervalSince(observedAt).rounded())

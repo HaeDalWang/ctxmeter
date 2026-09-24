@@ -14,7 +14,7 @@ Require ctxmeter
 Set Shell bash
 Set FontSize 15
 Set Columns 100
-Set Rows 34
+Set Rows 36
 Set Padding 22
 Set Theme "GitHub Dark"
 Set TypingSpeed 55ms

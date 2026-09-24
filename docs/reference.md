@@ -16,19 +16,47 @@ ctxmeter answers three questions without copying prompt or secret contents:
 
 ```bash
 npm test
-npm run scan
-npm run telemetry
-npm run dashboard
+npx ctxmeter                 # audit
+npx ctxmeter scan            # JSON snapshot
+npx ctxmeter telemetry       # session usage only
+npx ctxmeter dashboard       # local web view
 ```
 
 The default scan writes a timestamped JSON snapshot under `.ctxmeter/snapshots/`.
-`npm run telemetry` prints current session usage for all three harnesses as JSON on stdout and runs no inventory scan, which makes it the cheap path for an external status display. It takes about 0.2s including Node startup, against seconds for a full scan.
-The dashboard listens only on `http://127.0.0.1:4318`, lists local snapshots, and does not start unless you run `npm run dashboard`.
+`ctxmeter telemetry` prints current session usage for all three harnesses as JSON on stdout and runs no inventory scan, which makes it the cheap path for an external status display. It takes about 0.2s including Node startup, against seconds for a full scan.
+The dashboard listens only on `http://127.0.0.1:4318`, lists local snapshots, and does not start unless you ask for it.
 To choose the target paths explicitly:
 
 ```bash
-npm run scan -- --home /path/to/home --workspace /path/to/project --output ./scan.json
+npx ctxmeter scan --home /path/to/home --workspace /path/to/project --output ./scan.json
 ```
+
+## Disable flags and why they matter
+
+Each harness declares MCP servers in its own file and each supports switching one off in place:
+
+| Harness | File | Flag | Default when absent |
+|---|---|---|---|
+| Claude Code | `~/.claude/mcp.json` | `"disabled": true` | enabled |
+| Codex | `~/.codex/config.toml` | `enabled = false` under `[mcp_servers.<name>]` | enabled |
+| Kiro | `~/.kiro/settings/mcp.json` | `"disabled": true` | enabled |
+
+Codex plugin groups use `[plugins."<name>@<marketplace>"]` with `enabled = true`, and there the default when absent is **off** — the opposite of MCP servers, which is why the two are read by separate functions rather than one shared one.
+
+A server that is switched off is never started by `mcp-scan`, never counted toward the configured total, and never offered by `fix`. It contributes nothing to the prompt, so reporting it as unmeasured would overstate how much of the setup is unknown.
+
+## fix
+
+`ctxmeter fix` lists switches that would free measured tokens, ranked by saving. It writes nothing. `--apply <target>` flips exactly one, after copying the file to `<name>.ctxmeter-<timestamp>.bak` in the same directory and printing a `cp` command that restores it.
+
+- A proposal requires the item to be currently on **and** to have a measured token count. Anything unmeasured is never offered, because there would be no saving to promise.
+- TOML is edited line by line: the section's line range is located, an existing `enabled` line is replaced, or `enabled = false` is inserted after the header. The file is never reserialized, so comments and unrelated sections keep their bytes. A section that is missing, or that appears twice, is refused.
+- JSON is parsed and reserialized at two-space indent. Key order and the trailing newline are preserved, and the result is reparsed to confirm the edit and the ordering survived before anything is written. A file that will not parse — JSONC with comments, a trailing comma — is refused rather than repaired.
+- Applying the same target twice is refused rather than rewriting.
+- There is no undo log. The printed `cp` is the undo, and it works after ctxmeter is uninstalled.
+- `CLAUDE.md`, `AGENTS.md`, rule files, steering documents, and skills you wrote are reported but never edited. Those are content; an MCP server is a setting.
+
+`scripts/verify-fix-sandbox.sh` copies the real configs into a temporary home and checks the whole path: one added TOML line, one added JSON key, the untouched file byte-identical, a second apply refused with exit 1, and every file restored byte-for-byte by the printed rollback.
 
 ## What the snapshot contains
 
@@ -80,7 +108,7 @@ Codex's budget denominator is the active session's reported context window when 
 
 ## Important limits
 
-`metadataTokenEstimate` is a byte-based heuristic, not the model's exact token count. Claude and Codex JSONL totals are observed, but neither attributes input tokens to system prompt, tools, skills, and messages separately; ctxmeter subtracts static instruction/skill estimates and labels the remainder as unclassified. A Claude workspace without a local JSONL keeps the fallback file estimate or calibration. Historical snapshots update when `npm run scan` runs, while an open dashboard refreshes current numeric telemetry separately.
+`metadataTokenEstimate` is a byte-based heuristic, not the model's exact token count. Claude and Codex JSONL totals are observed, but neither attributes input tokens to system prompt, tools, skills, and messages separately; ctxmeter subtracts static instruction/skill estimates and labels the remainder as unclassified. A Claude workspace without a local JSONL keeps the fallback file estimate or calibration. Historical snapshots update when `ctxmeter scan` runs, while an open dashboard refreshes current numeric telemetry separately.
 
 ## Dashboard
 
