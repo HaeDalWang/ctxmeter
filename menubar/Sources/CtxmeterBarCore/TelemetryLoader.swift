@@ -15,13 +15,13 @@ public struct TelemetryLoader: Sendable {
         public var errorDescription: String? {
             switch self {
             case .nodeNotFound:
-                "node 실행 파일을 찾지 못했습니다. 설정에서 경로를 지정하세요."
+                "Could not find the node executable. Set its path in Settings."
             case .scriptMissing(let path):
-                "ctxmeter CLI가 없습니다: \(path)"
+                "ctxmeter CLI is missing: \(path)"
             case .processFailed(let status, let message):
-                "telemetry 실행 실패 (exit \(status)): \(message)"
+                "telemetry failed (exit \(status)): \(message)"
             case .decodeFailed(let message):
-                "telemetry 응답을 해석하지 못했습니다: \(message)"
+                "Could not decode the telemetry response: \(message)"
             }
         }
     }

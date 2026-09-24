@@ -12,7 +12,7 @@ struct DetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("세션 컨텍스트 상세").font(.title3.weight(.semibold))
+                    Text("Session context detail").font(.title3.weight(.semibold))
                     Text(store.workspace).font(.system(size: 11)).foregroundStyle(.secondary)
                 }
 
@@ -23,7 +23,7 @@ struct DetailView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("측정 한계").font(.system(size: 11, weight: .semibold))
+                    Text("Measurement limits").font(.system(size: 11, weight: .semibold))
                     Text(limitsText)
                         .font(.system(size: 10))
                         .foregroundStyle(.secondary)
@@ -39,10 +39,10 @@ struct DetailView: View {
 
     private var limitsText: String {
         """
-        Claude와 Codex의 점유율은 관측된 입력 토큰을 알려진 컨텍스트 창으로 나눈 값이고, \
-        Kiro는 세션이 직접 기록한 백분율입니다. 프로파일에 없는 모델은 용량을 추측하지 않고 \
-        미확인으로 둡니다. 아이콘은 이 Mac에 설치된 각 벤더 앱에서 읽어옵니다. \
-        설정 항목별 비용과 스킬 인벤토리는 npm run dashboard 쪽에서 확인하세요.
+        Claude and Codex shares are observed input tokens divided by a known context window; \
+        Kiro reports a percentage its session recorded directly. A model with no profile stays \
+        unknown rather than guessed. Icons are read from the vendor apps installed on this Mac. \
+        Per-item configuration cost and the skill inventory live in npm run dashboard.
         """
     }
 }

@@ -168,6 +168,7 @@ async function runMcpScan(options) {
     ].join('\n'));
   }
   const result = await measureMcpCost(entries, {
+    home,
     timeoutMs: Number(options.timeout) > 0 ? Number(options.timeout) : 5_000,
     allowRemote: options['allow-remote'] === true,
   });

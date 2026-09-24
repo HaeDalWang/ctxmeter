@@ -23,7 +23,7 @@ struct HarnessRow: View {
                 }
                 Text(harness.displayName).font(.system(size: 12, weight: .semibold))
                 if isMenuBarFocus {
-                    Text("상단바")
+                    Text("menu bar")
                         .font(.system(size: 9, weight: .medium))
                         .padding(.horizontal, 4)
                         .padding(.vertical, 1)
@@ -46,7 +46,7 @@ struct HarnessRow: View {
             .frame(height: 5)
 
             HStack(spacing: 5) {
-                Text(entry?.model ?? "세션 없음")
+                Text(entry?.model ?? "no session")
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer(minLength: 6)
@@ -66,7 +66,7 @@ struct HarnessRow: View {
             let window = entry.contextWindowTokens.map { " / \(Format.compactTokens($0))" } ?? ""
             return "\(Format.compactTokens(tokens))\(window) tokens"
         }
-        if let store = entry.store { return "백분율만 관측 · \(store)" }
-        return "미측정"
+        if let store = entry.store { return "percentage only · \(store)" }
+        return "not measured"
     }
 }

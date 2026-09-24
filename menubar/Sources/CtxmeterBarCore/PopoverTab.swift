@@ -14,7 +14,7 @@ public enum PopoverTab: Hashable, Sendable, CaseIterable {
 
     public var title: String {
         switch self {
-        case .overview: "개요"
+        case .overview: "Overview"
         case .harness(let harness): harness.displayName == "Claude Code" ? "Claude" : harness.displayName
         }
     }

@@ -13,6 +13,7 @@
     "public",
     "config",
     "README.md",
+    "docs/demo.svg",
     "LICENSE"
   ],
   "engines": {

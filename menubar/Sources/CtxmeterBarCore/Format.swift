@@ -6,7 +6,7 @@ public enum Format {
 
     /// Mirrors the web dashboard's `compact()` so both surfaces read the same.
     public static func compactTokens(_ value: Int?) -> String {
-        guard let value else { return "미측정" }
+        guard let value else { return "not measured" }
         if value >= million {
             let scaled = Double(value) / Double(million)
             return value % million == 0 ? "\(Int(scaled))m" : String(format: "%.1fm", scaled)
@@ -19,7 +19,7 @@ public enum Format {
     }
 
     public static func percentText(_ value: Double?) -> String {
-        guard let value, value.isFinite else { return "용량 미확인" }
+        guard let value, value.isFinite else { return "capacity unknown" }
         return String(format: "%.1f%%", value)
     }
 
@@ -62,12 +62,12 @@ public enum Format {
     }
 
     public static func relativeAge(_ observedAt: Date?, now: Date = Date()) -> String {
-        guard let observedAt else { return "기록 없음" }
+        guard let observedAt else { return "no record" }
         let seconds = Int(now.timeIntervalSince(observedAt).rounded())
-        if seconds < 60 { return "\(max(seconds, 0))초 전" }
-        if seconds < 3_600 { return "\(seconds / 60)분 전" }
-        if seconds < 86_400 { return "\(seconds / 3_600)시간 전" }
-        return "\(seconds / 86_400)일 전"
+        if seconds < 60 { return "\(max(seconds, 0))s ago" }
+        if seconds < 3_600 { return "\(seconds / 60)m ago" }
+        if seconds < 86_400 { return "\(seconds / 3_600)h ago" }
+        return "\(seconds / 86_400)d ago"
     }
 
     public static func timestamp(_ isoText: String?) -> Date? {

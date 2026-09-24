@@ -64,7 +64,7 @@ struct PopoverView: View {
             }
             .buttonStyle(.borderless)
             .disabled(store.isRefreshing)
-            .help("지금 새로고침")
+            .help("Refresh now")
         }
     }
 
@@ -72,7 +72,7 @@ struct PopoverView: View {
         HStack(spacing: 8) {
             Text(refreshText).font(.system(size: 10)).foregroundStyle(.secondary)
             Spacer(minLength: 6)
-            Button("자세히 보기") { openWindow(id: DetailWindowID.value) }
+            Button("Details") { openWindow(id: DetailWindowID.value) }
                 .buttonStyle(.borderless).font(.system(size: 11))
             Button {
                 try? openSettings()
@@ -80,19 +80,19 @@ struct PopoverView: View {
                 Image(systemName: "gearshape")
             }
             .buttonStyle(.borderless)
-            .help("설정")
+            .help("Settings")
             Button {
                 NSApplication.shared.terminate(nil)
             } label: {
                 Image(systemName: "power")
             }
             .buttonStyle(.borderless)
-            .help("종료")
+            .help("Quit")
         }
     }
 
     private var headerTitle: String {
-        store.selectedTab == .overview ? "컨텍스트 점유율" : "\(store.selectedTab.title) 세션"
+        store.selectedTab == .overview ? "Context share" : "\(store.selectedTab.title) session"
     }
 
     private var workspaceName: String {
@@ -100,6 +100,6 @@ struct PopoverView: View {
     }
 
     private var refreshText: String {
-        "갱신 \(Format.relativeAge(store.lastRefreshedAt)) · 주기 \(Int(store.refreshSeconds))초"
+        "updated \(Format.relativeAge(store.lastRefreshedAt)) · every \(Int(store.refreshSeconds))s"
     }
 }

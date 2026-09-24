@@ -195,6 +195,7 @@ function snapshotWithMcp(count) {
 test('audit folds a cached MCP measurement into the ranked findings', () => {
   const mcpCost = {
     measuredAt: '2026-09-24T11:00:00.000Z',
+    home: '/h',
     servers: [
       { harness: 'claude', name: 'big', status: 'measured', toolCount: 30, estimatedTokens: 7_298 },
       { harness: 'claude', name: 'small', status: 'measured', toolCount: 7, estimatedTokens: 1_124 },
@@ -223,4 +224,56 @@ test('audit without a cached measurement tells the user how to get one', () => {
   assert.equal(claude.findings.some((finding) => finding.id === 'mcp'), false);
   assert.equal(claude.unmeasured.find((item) => item.id === 'mcp').count, 4);
   assert.match(formatAudit(report), /mcp-scan/);
+});
+
+
+test('audit ignores an MCP cache measured against a different home', () => {
+  const snapshot = snapshotWithMcp(3);
+  snapshot.target.home = '/home/real';
+  const foreignCache = {
+    measuredAt: '2026-09-24T11:00:00.000Z',
+    home: '/home/someone-else',
+    servers: [{ harness: 'claude', name: 'big', status: 'measured', toolCount: 30, estimatedTokens: 7_298 }],
+  };
+
+  const report = auditReport(snapshot, { profiles: [] }, foreignCache);
+  const claude = report.harnesses.find((entry) => entry.id === 'claude');
+
+  // A cache from another machine or another --home must not be reported as this one's cost.
+  assert.equal(claude.findings.some((finding) => finding.id === 'mcp'), false);
+  assert.equal(report.mcpMeasuredAt, null);
+  assert.equal(claude.unmeasured.find((item) => item.id === 'mcp').count, 3);
+
+  // The same cache with a matching home is used.
+  const matching = auditReport(snapshot, { profiles: [] }, { ...foreignCache, home: '/home/real' });
+  assert.equal(matching.harnesses[0].findings[0].id, 'mcp');
+});
+
+test('a cache with no recorded home is treated as untrusted', () => {
+  const snapshot = snapshotWithMcp(1);
+  snapshot.target.home = '/home/real';
+  const report = auditReport(snapshot, { profiles: [] }, {
+    measuredAt: 't', servers: [{ harness: 'claude', name: 'x', status: 'measured', toolCount: 1, estimatedTokens: 500 }],
+  });
+
+  assert.equal(report.mcpMeasuredAt, null);
+  assert.equal(report.harnesses[0].findings.some((finding) => finding.id === 'mcp'), false);
+});
+
+test('a flooding server is cut off instead of consuming unbounded memory', async () => {
+  const home = fixtureHome();
+  write(home, 'servers/flood.js', `
+process.stdin.on('data', () => {});
+const chunk = 'x'.repeat(64 * 1024);
+setInterval(() => process.stdout.write(chunk), 1);
+`);
+  write(home, '.claude/mcp.json', JSON.stringify({
+    mcpServers: { flood: { command: process.execPath, args: [path.join(home, 'servers/flood.js')] } },
+  }));
+
+  const result = await measureMcpCost(mcpServerEntries(home), { timeoutMs: 4_000 });
+
+  assert.equal(result.servers[0].status, 'failed');
+  assert.match(result.servers[0].detail, /too much output/);
+  assert.equal(result.servers[0].estimatedTokens, null);
 });

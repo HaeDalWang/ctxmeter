@@ -120,7 +120,12 @@ function auditHarness(harnessId, harness, profiles, mcpCost) {
   };
 }
 
-function auditReport(snapshot, profiles = {}, mcpCost = null) {
+function auditReport(snapshot, profiles = {}, rawMcpCost = null) {
+  // A cache records the home it measured. Using one from a different home would
+  // report another machine's servers as this one's cost.
+  const mcpCost = rawMcpCost && rawMcpCost.home && rawMcpCost.home === snapshot.target?.home
+    ? rawMcpCost
+    : null;
   const harnesses = Object.entries(snapshot.harnesses || {})
     .map(([harnessId, harness]) => auditHarness(harnessId, harness, profiles, mcpCost))
     .filter((entry) => entry.measuredStartupTokens || entry.unmeasured.length || entry.observedInputTokens !== null)

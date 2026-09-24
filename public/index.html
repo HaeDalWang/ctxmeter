@@ -11,19 +11,19 @@
     <div>
       <p class="eyebrow">LOCAL AGENT OBSERVABILITY</p>
       <h1>ctxmeter</h1>
-      <p class="muted">모델별 최신 컨텍스트 사용량과 설정 항목의 예상 비용을 확인합니다.</p>
+      <p class="muted">Latest context usage per model and the estimated cost of each configuration item.</p>
     </div>
     <label class="snapshot-picker">Snapshot <select id="snapshots"></select></label>
   </header>
   <main>
     <section class="context-panel" aria-labelledby="context-title">
       <div class="context-toolbar">
-        <div><p class="eyebrow">CONTEXT BUDGET</p><h2 id="context-title">에이전트·모델별 컨텍스트 사용량</h2></div>
+        <div><p class="eyebrow">CONTEXT BUDGET</p><h2 id="context-title">Context usage by agent and model</h2></div>
         <div class="context-actions">
           <span id="live-status" class="live-status">Snapshot mode</span>
           <div id="mode-switch" class="segmented" aria-label="Context view">
-            <button data-mode="first-session">첫 응답 / 초기 추정</button>
-            <button data-mode="observed-session" class="active">최신 관측</button>
+            <button data-mode="first-session">First response / estimate</button>
+            <button data-mode="observed-session" class="active">Latest observed</button>
           </div>
         </div>
       </div>
@@ -32,11 +32,11 @@
       <p id="model-context-note" class="model-context-note"></p>
       <div id="context-budget"></div>
     </section>
-    <section class="section-heading"><div><p class="eyebrow">HARNESS INVENTORY</p><h2>설치 구성 요약</h2></div><p class="muted">아래 수치는 파일 스냅샷 기반입니다.</p></section>
+    <section class="section-heading"><div><p class="eyebrow">HARNESS INVENTORY</p><h2>Installed inventory</h2></div><p class="muted">Figures below come from the file snapshot.</p></section>
     <section id="cards" class="cards"></section>
     <section class="layout">
       <aside><h2>Explore</h2><input id="query" aria-label="Inventory search" placeholder="Skill name or path"><select id="harness" aria-label="Harness filter"><option value="">All harnesses</option><option value="claude">Claude</option><option value="codex">Codex</option><option value="kiro">Kiro</option></select><p id="count"></p></aside>
-      <section><h2>Inventory groups</h2><p class="muted">ECC 같은 큰 그룹은 접혀 있습니다. 클릭하거나 검색하면 펼쳐집니다.</p><div id="groups"></div></section>
+      <section><h2>Inventory groups</h2><p class="muted">ECC Large groups stay collapsed. Click or search to expand.</p><div id="groups"></div></section>
       <aside id="detail"><h2>Detail</h2><p class="muted">Select an asset.</p></aside>
     </section>
   </main>

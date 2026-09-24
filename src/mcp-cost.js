@@ -15,6 +15,8 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 
 const PROTOCOL_VERSION = '2025-06-18';
+// A misbehaving server must not be able to exhaust our memory.
+const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 const CLIENT_INFO = { name: 'agentlens', version: '0.1.0' };
 
 /// Only the fields a model is actually shown. Servers attach `_meta`,
@@ -137,6 +139,8 @@ function measureStdioServer(entry, timeoutMs) {
       child = spawn(entry.command, entry.args, {
         stdio: ['pipe', 'pipe', 'ignore'],
         env: { ...process.env, ...entry.env },
+        // npx and uvx are batch shims on Windows and are not directly executable.
+        shell: process.platform === 'win32',
       });
     } catch {
       resolve({ status: 'failed', detail: 'could not spawn' });
@@ -160,6 +164,10 @@ function measureStdioServer(entry, timeoutMs) {
     const [initialize, initialized, listTools] = frames();
     child.stdout.on('data', (chunk) => {
       buffer += chunk;
+      if (buffer.length > MAX_RESPONSE_BYTES) {
+        finish({ status: 'failed', detail: 'server sent too much output before answering' });
+        return;
+      }
       let index;
       while ((index = buffer.indexOf('\n')) !== -1) {
         const line = buffer.slice(0, index);
@@ -222,6 +230,7 @@ async function measureHttpServer(entry, timeoutMs) {
 
 async function measureMcpCost(entries, options = {}) {
   const timeoutMs = options.timeoutMs ?? 5_000;
+  const home = options.home || null;
   const allowRemote = options.allowRemote === true;
 
   const servers = await Promise.all(entries.map(async (entry) => {
@@ -245,6 +254,7 @@ async function measureMcpCost(entries, options = {}) {
 
   return {
     measuredAt: new Date().toISOString(),
+    home,
     protocolVersion: PROTOCOL_VERSION,
     timeoutMs,
     servers,

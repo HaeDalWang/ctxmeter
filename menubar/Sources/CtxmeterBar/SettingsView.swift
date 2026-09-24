@@ -7,36 +7,36 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
-            Section("갱신") {
-                LabeledContent("주기") {
+            Section("Refresh") {
+                LabeledContent("Interval") {
                     HStack(spacing: 8) {
                         Slider(
                             value: $store.refreshSeconds,
                             in: AppSettings.minimumRefreshSeconds...AppSettings.maximumRefreshSeconds,
                             step: 5
                         )
-                        Text("\(Int(store.refreshSeconds))초").monospacedDigit().frame(width: 46, alignment: .trailing)
+                        Text("\(Int(store.refreshSeconds))s").monospacedDigit().frame(width: 46, alignment: .trailing)
                     }
                 }
-                Text("최소 \(Int(AppSettings.minimumRefreshSeconds))초. 인벤토리 스캔이 아니라 세션 사용량만 읽으므로 비용은 수십 ms입니다.")
+                Text("Minimum \(Int(AppSettings.minimumRefreshSeconds))s. Reads session usage only, not the inventory scan, so it costs tens of milliseconds.")
                     .font(.system(size: 10)).foregroundStyle(.secondary)
             }
 
-            Section("작업공간") {
-                LabeledContent("경로") {
+            Section("Workspace") {
+                LabeledContent("Path") {
                     HStack(spacing: 8) {
                         Text(store.workspace).lineLimit(1).truncationMode(.head)
                         Spacer(minLength: 4)
-                        Button("변경…") { chooseWorkspace() }
+                        Button("Change…") { chooseWorkspace() }
                     }
                 }
-                Text("한 번에 하나의 작업공간만 표시합니다.")
+                Text("One workspace at a time.")
                     .font(.system(size: 10)).foregroundStyle(.secondary)
             }
 
-            Section("node 경로") {
-                TextField("자동 탐색", text: $store.nodePathOverride, prompt: Text(NodeLocator.knownPaths[0]))
-                Text("메뉴바 앱은 축소된 PATH를 물려받아 node를 자동으로 못 찾을 수 있습니다. 비워두면 알려진 설치 경로를 순서대로 찾습니다.")
+            Section("node path") {
+                TextField("Auto-detect", text: $store.nodePathOverride, prompt: Text(NodeLocator.knownPaths[0]))
+                Text("A menu bar app inherits a minimal PATH and may not find node on its own. Leave blank to search the known install paths in order.")
                     .font(.system(size: 10)).foregroundStyle(.secondary)
             }
         }

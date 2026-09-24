@@ -59,6 +59,8 @@ Per-server timeouts, hard kills, remote servers skipped unless you opt in, and s
 
 No prompt text, rule text, skill bodies, or credentials are copied. No network connection except MCP servers you explicitly opt into. No background watcher, no database, no telemetry. Prompt-history files are never opened. Snapshots hold paths, counts, and byte estimates only — the test suite asserts it.
 
+`mcp-scan` passes your shell environment through to each server it starts, because servers need `PATH` and `HOME` to run at all. That is how every MCP client works, and it is why the command is opt-in.
+
 ## What it cannot tell you
 
 **Static figures are bytes ÷ 4.** A heuristic, not a tokenizer. Claude and Codex session totals are observed exactly; Kiro records only a percentage, so no token count is derived from it.
@@ -82,6 +84,8 @@ No prompt text, rule text, skill bodies, or credentials are copied. No network c
 ## Requirements
 
 Node 20+. The menu bar app needs macOS 14+ and the Swift toolchain; full Xcode is not required.
+
+Tested on macOS. Linux should work and is covered by CI for the Node side. Windows support for `mcp-scan` is implemented but unverified.
 
 ## License
 

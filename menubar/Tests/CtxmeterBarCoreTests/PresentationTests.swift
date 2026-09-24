@@ -20,7 +20,7 @@ private let report = TelemetryReport(
     #expect(PopoverTab.allCases.count == 4)
     #expect(PopoverTab.allCases.first == .overview)
     #expect(PopoverTab.allCases.dropFirst() == [.harness(.claude), .harness(.codex), .harness(.kiro)])
-    #expect(PopoverTab.overview.title == "개요")
+    #expect(PopoverTab.overview.title == "Overview")
     #expect(PopoverTab.harness(.kiro).title == "Kiro")
 }
 

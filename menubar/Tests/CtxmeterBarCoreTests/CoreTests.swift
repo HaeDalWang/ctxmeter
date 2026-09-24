@@ -63,7 +63,7 @@ private let sampleJSON = """
 }
 
 @Test func compactTokensMatchesDashboardStyle() {
-    #expect(Format.compactTokens(nil) == "미측정")
+    #expect(Format.compactTokens(nil) == "not measured")
     #expect(Format.compactTokens(0) == "0")
     #expect(Format.compactTokens(940) == "940")
     #expect(Format.compactTokens(69784) == "69.8k")
@@ -72,7 +72,7 @@ private let sampleJSON = """
 }
 
 @Test func percentTextKeepsUnknownExplicit() {
-    #expect(Format.percentText(nil) == "용량 미확인")
+    #expect(Format.percentText(nil) == "capacity unknown")
     #expect(Format.percentText(31.0) == "31.0%")
     #expect(Format.percentText(27.006191950464398) == "27.0%")
 }
@@ -98,8 +98,8 @@ private let sampleJSON = """
 
 @Test func observedAgeDescribesStaleReadings() {
     let now = Date(timeIntervalSince1970: 1_000_000)
-    #expect(Format.relativeAge(nil, now: now) == "기록 없음")
-    #expect(Format.relativeAge(now.addingTimeInterval(-20), now: now) == "20초 전")
-    #expect(Format.relativeAge(now.addingTimeInterval(-3 * 60), now: now) == "3분 전")
-    #expect(Format.relativeAge(now.addingTimeInterval(-2 * 3600), now: now) == "2시간 전")
+    #expect(Format.relativeAge(nil, now: now) == "no record")
+    #expect(Format.relativeAge(now.addingTimeInterval(-20), now: now) == "20s ago")
+    #expect(Format.relativeAge(now.addingTimeInterval(-3 * 60), now: now) == "3m ago")
+    #expect(Format.relativeAge(now.addingTimeInterval(-2 * 3600), now: now) == "2h ago")
 }

@@ -25,7 +25,7 @@ struct CtxmeterBarApp: App {
         }
         .menuBarExtraStyle(.window)
 
-        Window("ctxmeter 상세", id: DetailWindowID.value) {
+        Window("ctxmeter detail", id: DetailWindowID.value) {
             DetailView(store: store)
         }
         .windowResizability(.contentMinSize)
