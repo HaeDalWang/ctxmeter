@@ -3,3 +3,7 @@
 coverage/
 menubar/.build/
 menubar/Package.resolved
+
+# Demo recording artifacts. docs/demo.gif is committed; these are inputs to it.
+.demo-frames/
+.vhs-bin/

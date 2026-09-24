@@ -13,7 +13,7 @@
 npx ctxmeter
 ```
 
-<p align="center"><img src="docs/demo.svg" alt="ctxmeter audit output showing 34,394 tokens of startup cost across Codex, Claude Code, and Kiro" width="760"></p>
+<p align="center"><img src="docs/demo.gif" alt="ctxmeter audit output showing 34,394 tokens of startup cost across Codex, Claude Code, and Kiro" width="760"></p>
 
 Skills, rule files, steering docs, hooks, and MCP servers all load at session start. You find out when compaction hits. One command, no config, no account, nothing leaves your machine.
 
@@ -51,7 +51,9 @@ Per-server timeouts, hard kills, remote servers skipped unless you opt in, and s
 
 ## Also included
 
-**Web dashboard** — `npm run dashboard`, bound to `127.0.0.1:4318` only. Per-harness context maps, collapsible per-file cost, live session numbers polled while the tab is visible.
+**Web dashboard** — `npx ctxmeter dashboard`, bound to `127.0.0.1:4318` only. Per-harness context maps, collapsible per-file cost, live session numbers polled while the tab is visible.
+
+<p align="center"><img src="docs/img/dashboard.png" alt="ctxmeter dashboard showing Claude Code at 192k of 1m tokens, broken down into messages, instructions, skill metadata, and autocompact buffer" width="860"></p>
 
 **macOS menu bar app** — `cd menubar && make run`. Current occupancy per agent, with vendor icons read from the apps installed on your Mac. [Details](menubar/README.md).
 
@@ -77,7 +79,8 @@ No prompt text, rule text, skill bodies, or credentials are copied. No network c
 | `npx ctxmeter mcp-scan` | measure MCP tool schemas (starts your servers) |
 | `npx ctxmeter scan` | full inventory snapshot as JSON |
 | `npx ctxmeter telemetry` | current session usage as JSON, ~0.2s |
-| `npm run dashboard` | local web dashboard |
+| `npx ctxmeter dashboard` | local web dashboard |
+| `npx ctxmeter --help` | every command and flag |
 
 `--home` and `--workspace` override paths on any command.
 

@@ -21,7 +21,7 @@
     "public",
     "config",
     "README.md",
-    "docs/demo.svg",
+    "docs/demo.gif",
     "LICENSE"
   ],
   "engines": {
@@ -41,8 +41,9 @@
     "audit": "node src/cli.js audit",
     "scan": "node src/cli.js scan",
     "telemetry": "node src/cli.js telemetry",
-    "dashboard": "node src/dashboard-server.js",
+    "dashboard": "node src/cli.js dashboard",
     "test": "node --test",
-    "test:coverage": "node --test --experimental-test-coverage"
+    "test:coverage": "node --test --experimental-test-coverage",
+    "demo": "./scripts/build-demo.sh"
   }
 }
