@@ -1,4 +1,4 @@
-import AgentLensBarCore
+import CtxmeterBarCore
 import AppKit
 import SwiftUI
 

@@ -1,7 +1,7 @@
 (function expose(root, factory) {
   const api = factory();
   if (typeof module === 'object' && module.exports) module.exports = api;
-  else root.AgentLensModel = api;
+  else root.ctxmeterModel = api;
 }(typeof globalThis === 'object' ? globalThis : this, function createModel() {
   function instructionTokens(id, harness) {
     if (id === 'claude') return (harness.alwaysOn?.claudeMd?.tokenEstimate || 0) + Math.round((harness.alwaysOn?.ruleBytes || 0) / 4);

@@ -22,9 +22,9 @@ function safeSnapshotName(value) {
 
 function formatListenError(error, port) {
   if (error.code === 'EADDRINUSE') {
-    return `AgentLens dashboard is already running on http://127.0.0.1:${port}. Stop that process or run AGENTLENS_PORT=${port + 1} npm run dashboard.`;
+    return `ctxmeter dashboard is already running on http://127.0.0.1:${port}. Stop that process or run CTXMETER_PORT=${port + 1} npm run dashboard.`;
   }
-  return `AgentLens dashboard could not start: ${error.message || error.code}`;
+  return `ctxmeter dashboard could not start: ${error.message || error.code}`;
 }
 
 function createDashboardServer({ snapshotDirectory, publicDirectory, contextProfilesFile, claudeRuntimeReader, codexRuntimeReader, kiroRuntimeReader }) {
@@ -63,19 +63,19 @@ function createDashboardServer({ snapshotDirectory, publicDirectory, contextProf
 if (require.main === module) {
   const root = process.cwd();
   const server = createDashboardServer({
-    snapshotDirectory: path.join(root, '.agentlens', 'snapshots'),
+    snapshotDirectory: path.join(root, '.ctxmeter', 'snapshots'),
     publicDirectory: path.join(root, 'public'),
     contextProfilesFile: path.join(root, 'config', 'context-profiles.json'),
     claudeRuntimeReader: createClaudeRuntimeReader({ home: os.homedir(), workspace: root, minRefreshMs: 5_000 }),
     codexRuntimeReader: createCodexRuntimeReader({ home: os.homedir(), workspace: root, minRefreshMs: 5_000 }),
     kiroRuntimeReader: createKiroRuntimeReader({ home: os.homedir(), workspace: root, minRefreshMs: 5_000 }),
   });
-  const port = Number(process.env.AGENTLENS_PORT || 4318);
+  const port = Number(process.env.CTXMETER_PORT || 4318);
   server.once('error', (error) => {
     process.stderr.write(`${formatListenError(error, port)}\n`);
     process.exitCode = 1;
   });
-  server.listen(port, '127.0.0.1', () => process.stdout.write(`AgentLens dashboard: http://127.0.0.1:${port}\n`));
+  server.listen(port, '127.0.0.1', () => process.stdout.write(`ctxmeter dashboard: http://127.0.0.1:${port}\n`));
 }
 
 module.exports = { createDashboardServer, formatListenError, listSnapshots };

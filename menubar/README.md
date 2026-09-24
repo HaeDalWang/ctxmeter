@@ -1,6 +1,6 @@
-# AgentLensBar
+# CtxmeterBar
 
-macOS menu bar front end for AgentLens. Shows current context occupancy per harness, refreshes on a timer or on demand, and opens a detail window.
+macOS menu bar front end for ctxmeter. Shows current context occupancy per harness, refreshes on a timer or on demand, and opens a detail window.
 
 ## Build and run
 
@@ -8,16 +8,16 @@ Full Xcode is not required; the Swift command line tools are enough.
 
 ```bash
 make test      # swift test, 10 core tests
-make bundle    # assembles .build/release/AgentLensBar.app
+make bundle    # assembles .build/release/CtxmeterBar.app
 make run       # bundle, then launch
 make install   # copy to /Applications
 ```
 
-SwiftPM cannot emit a `.app`, so the `Makefile` assembles the bundle: it copies the executable, rewrites `Info.plist`, and stages `src/`, `config/`, and `package.json` from the repository root into `Contents/Resources/agentlens`.
+SwiftPM cannot emit a `.app`, so the `Makefile` assembles the bundle: it copies the executable, rewrites `Info.plist`, and stages `src/`, `config/`, and `package.json` from the repository root into `Contents/Resources/ctxmeter`.
 
 ## How it gets data
 
-The app runs the bundled `agentlens telemetry` command and decodes its JSON. The scanner stays in Node because it is already covered by the JavaScript test suite; duplicating it in Swift would create two sources of truth. Only decoding, formatting, and the node lookup live here, and those are what the Swift tests cover.
+The app runs the bundled `ctxmeter telemetry` command and decodes its JSON. The scanner stays in Node because it is already covered by the JavaScript test suite; duplicating it in Swift would create two sources of truth. Only decoding, formatting, and the node lookup live here, and those are what the Swift tests cover.
 
 `node` must be installed. A menu bar app inherits a minimal `PATH`, so `/usr/bin/env node` cannot be relied on. `NodeLocator` checks `/opt/homebrew/bin/node`, `/usr/local/bin/node`, and `/usr/bin/node` in that order, and Settings accepts an explicit override.
 

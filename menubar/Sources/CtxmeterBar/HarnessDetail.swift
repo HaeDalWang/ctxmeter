@@ -1,4 +1,4 @@
-import AgentLensBarCore
+import CtxmeterBarCore
 import SwiftUI
 
 /// Single-harness view used by both the popover tab and the detail window.

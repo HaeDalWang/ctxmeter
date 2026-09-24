@@ -1,6 +1,6 @@
 import Foundation
 
-/// One harness entry from `agentlens telemetry`.
+/// One harness entry from `ctxmeter telemetry`.
 ///
 /// Every numeric field is optional on purpose. Kiro records a percentage and no
 /// token total, Claude and Codex record the reverse, and a model with no known

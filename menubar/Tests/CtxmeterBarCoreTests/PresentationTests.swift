@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import AgentLensBarCore
+@testable import CtxmeterBarCore
 
 private let report = TelemetryReport(
     schemaVersion: "0.1.0", generatedAt: "t",
@@ -90,10 +90,10 @@ private let report = TelemetryReport(
     )
 
     #expect(Format.menuBarText(sparse, tab: .harness(.claude)) == "—")
-    #expect(Format.menuBarText(sparse, tab: .overview) == "AgentLens")
+    #expect(Format.menuBarText(sparse, tab: .overview) == "ctxmeter")
     #expect(Format.menuBarFocus(sparse, tab: .overview) == nil)
     #expect(Format.menuBarText(nil, tab: .harness(.kiro)) == "—")
-    #expect(Format.menuBarText(nil, tab: .overview) == "AgentLens")
+    #expect(Format.menuBarText(nil, tab: .overview) == "ctxmeter")
 }
 
 @Test func agentAppLocatorFindsVendorAppsInPreferenceOrder() {

@@ -3,13 +3,13 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleName</key>
-	<string>AgentLensBar</string>
+	<string>CtxmeterBar</string>
 	<key>CFBundleDisplayName</key>
-	<string>AgentLens</string>
+	<string>ctxmeter</string>
 	<key>CFBundleIdentifier</key>
-	<string>local.agentlens.bar</string>
+	<string>local.ctxmeter.bar</string>
 	<key>CFBundleExecutable</key>
-	<string>AgentLensBar</string>
+	<string>CtxmeterBar</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>

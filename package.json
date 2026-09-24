@@ -1,12 +1,12 @@
 {
-  "name": "agentlens",
+  "name": "ctxmeter",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
   "description": "See what your AI coding agent loads into context before you type anything. Local, read-only, no account.",
   "license": "MIT",
   "type": "commonjs",
   "bin": {
-    "agentlens": "src/cli.js"
+    "ctxmeter": "src/cli.js"
   },
   "files": [
     "src",

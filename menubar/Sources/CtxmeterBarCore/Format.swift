@@ -26,12 +26,12 @@ public enum Format {
     /// The full multi-harness summary. Too wide for the menu bar itself, so it
     /// serves as the tooltip and accessibility label instead.
     public static func menuBarLabel(_ report: TelemetryReport?) -> String {
-        guard let report else { return "AgentLens" }
+        guard let report else { return "ctxmeter" }
         let parts = Harness.allCases.compactMap { harness -> String? in
             guard let percent = report.entry(harness)?.usagePercent, percent.isFinite else { return nil }
             return "\(harness.shortCode) \(Int(percent.rounded()))%"
         }
-        return parts.isEmpty ? "AgentLens" : parts.joined(separator: " · ")
+        return parts.isEmpty ? "ctxmeter" : parts.joined(separator: " · ")
     }
 
     /// Whose icon belongs in the menu bar. On a harness tab it is that harness.
@@ -55,7 +55,7 @@ public enum Format {
     /// One number, because three of them crowd the menu bar out.
     public static func menuBarText(_ report: TelemetryReport?, tab: PopoverTab) -> String {
         guard let harness = menuBarFocus(report, tab: tab) else {
-            return tab == .overview ? "AgentLens" : "—"
+            return tab == .overview ? "ctxmeter" : "—"
         }
         guard let percent = report?.entry(harness)?.usagePercent, percent.isFinite else { return "—" }
         return "\(Int(percent.rounded()))%"

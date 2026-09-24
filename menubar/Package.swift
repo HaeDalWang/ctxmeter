@@ -2,18 +2,18 @@
 import PackageDescription
 
 let package = Package(
-    name: "AgentLensBar",
+    name: "CtxmeterBar",
     platforms: [.macOS(.v14)],
     dependencies: [
         .package(url: "https://github.com/apple/swift-testing", from: "0.12.0"),
     ],
     targets: [
-        .target(name: "AgentLensBarCore"),
-        .executableTarget(name: "AgentLensBar", dependencies: ["AgentLensBarCore"]),
+        .target(name: "CtxmeterBarCore"),
+        .executableTarget(name: "CtxmeterBar", dependencies: ["CtxmeterBarCore"]),
         .testTarget(
-            name: "AgentLensBarCoreTests",
+            name: "CtxmeterBarCoreTests",
             dependencies: [
-                "AgentLensBarCore",
+                "CtxmeterBarCore",
                 .product(name: "Testing", package: "swift-testing"),
             ]
         ),

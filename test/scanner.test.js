@@ -19,7 +19,7 @@ const { buildConfigurationCosts, buildContextBudget, buildContextOverview, merge
 const contextProfiles = require('../config/context-profiles.json');
 
 function fixtureHome() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'agentlens-test-'));
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'ctxmeter-test-'));
 }
 
 function write(root, relativePath, content) {
@@ -186,7 +186,7 @@ test('CLI writes a metadata-only JSON snapshot and prints a concise summary', ()
   ], { cwd: path.join(__dirname, '..'), encoding: 'utf8' });
 
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /AgentLens scan complete/);
+  assert.match(result.stdout, /ctxmeter scan complete/);
   assert.ok(fs.existsSync(output));
   const snapshot = JSON.parse(fs.readFileSync(output, 'utf8'));
   assert.equal(snapshot.schemaVersion, '0.1.0');
@@ -286,7 +286,7 @@ test('dashboard lists snapshots, serves assets, and rejects traversal paths', as
     assert.equal(JSON.parse((await request('/api/runtime/claude')).body).sessionTelemetry.latestUsage.inputTokens, 654);
     assert.equal((await request('/api/snapshots/example.json')).status, 200);
     assert.equal((await request('/api/snapshots/%2e%2e%2fsecret.json')).status, 400);
-    assert.match((await request('/')).body, /AgentLens/);
+    assert.match((await request('/')).body, /ctxmeter/);
     assert.equal((await request('/api/snapshots/missing.json')).status, 404);
   } finally {
     await new Promise((resolve) => server.close(resolve));
@@ -295,7 +295,7 @@ test('dashboard lists snapshots, serves assets, and rejects traversal paths', as
 
 test('dashboard reports a helpful message when its local port is occupied', () => {
   assert.match(formatListenError({ code: 'EADDRINUSE' }, 4318), /already running.*4318/i);
-  assert.match(formatListenError({ code: 'EADDRINUSE' }, 4318), /AGENTLENS_PORT=4319/);
+  assert.match(formatListenError({ code: 'EADDRINUSE' }, 4318), /CTXMETER_PORT=4319/);
   assert.match(formatListenError({ code: 'EACCES', message: 'denied' }, 4318), /denied/);
 });
 

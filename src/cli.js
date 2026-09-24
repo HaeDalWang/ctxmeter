@@ -5,32 +5,56 @@ const os = require('node:os');
 const path = require('node:path');
 const { scanEnvironment, scanClaudeRuntime, scanCodexRuntime, scanKiroRuntime } = require('./scanner');
 const { auditReport, formatAudit } = require('./audit');
+const { describeDryRun, formatMcpCost, mcpServerEntries, measureMcpCost } = require('./mcp-cost');
 
 const PROFILES_FILE = path.join(__dirname, '..', 'config', 'context-profiles.json');
+const MCP_CACHE_NAME = 'mcp-cost.json';
+
+function mcpCachePath(workspace) {
+  return path.join(workspace, '.ctxmeter', MCP_CACHE_NAME);
+}
+
+/// Written by mcp-scan, read by audit. Keeps the expensive path opt-in and rare.
+function readMcpCache(workspace) {
+  try {
+    return JSON.parse(fs.readFileSync(mcpCachePath(workspace), 'utf8'));
+  } catch {
+    return null;
+  }
+}
 
 function usage() {
   return [
-    'Usage: agentlens [audit]    [--home <dir>] [--workspace <dir>]',
-    '       agentlens scan       [--home <dir>] [--workspace <dir>] [--output <file>]',
-    '       agentlens telemetry  [--home <dir>] [--workspace <dir>]',
+    'Usage: ctxmeter [audit]    [--home <dir>] [--workspace <dir>]',
+    '       ctxmeter scan       [--home <dir>] [--workspace <dir>] [--output <file>]',
+    '       ctxmeter telemetry  [--home <dir>] [--workspace <dir>]',
+    '       ctxmeter mcp-scan   [--dry-run] [--allow-remote] [--timeout <ms>]',
     '',
     'audit     (default) prints what your agent setup costs before you type anything.',
     'scan      writes a full metadata-only inventory snapshot.',
     'telemetry prints current session usage as JSON without an inventory scan.',
+    'mcp-scan  measures MCP tool schema cost. This one starts your servers; see --dry-run.',
     '',
     'No command copies prompt, rule, skill, or secret contents, and nothing leaves this machine.',
   ].join('\n');
 }
 
+const VALUE_FLAGS = ['--home', '--workspace', '--output', '--timeout'];
+const BOOLEAN_FLAGS = ['--dry-run', '--allow-remote', '--i-understand-this-launches-servers'];
+
 function parseArgs(argv) {
   const [first, ...rest] = argv;
-  // Bare `npx agentlens` runs the audit, so the front door needs no arguments.
+  // Bare `npx ctxmeter` runs the audit, so the front door needs no arguments.
   const hasCommand = first !== undefined && !first.startsWith('--');
   const options = { command: hasCommand ? first : 'audit' };
   const flags = hasCommand ? rest : argv;
   for (let index = 0; index < flags.length; index += 1) {
     const flag = flags[index];
-    if (!['--home', '--workspace', '--output'].includes(flag)) throw new Error(`Unknown option: ${flag}`);
+    if (BOOLEAN_FLAGS.includes(flag)) {
+      options[flag.slice(2)] = true;
+      continue;
+    }
+    if (!VALUE_FLAGS.includes(flag)) throw new Error(`Unknown option: ${flag}`);
     const value = flags[index + 1];
     if (!value || value.startsWith('--')) throw new Error(`Missing value for ${flag}`);
     options[flag.slice(2)] = value;
@@ -46,7 +70,7 @@ function metadataTokens(groups) {
 function formatSummary(snapshot, output) {
   const { claude, codex, kiro } = snapshot.harnesses;
   return [
-    'AgentLens scan complete',
+    'ctxmeter scan complete',
     `Claude: ${claude.enabledPlugins.length} enabled plugins, ${claude.hookCount} hooks, ~${metadataTokens(claude.skillGroups)} skill-metadata tokens`,
     `Codex: ${codex.enabledPlugins.length} enabled / ${codex.configuredPluginCount} configured plugins, ${codex.hookCount} hooks, ~${metadataTokens(codex.skillGroups)} skill-metadata tokens`,
     `Kiro: ${kiro.customAgentCount} custom agents, ${kiro.powerCount} powers, ~${metadataTokens(kiro.skillGroups)} skill-metadata tokens`,
@@ -58,7 +82,7 @@ function formatSummary(snapshot, output) {
 function resolveOutput(workspace, requestedOutput) {
   if (requestedOutput) return path.resolve(requestedOutput);
   const stamp = new Date().toISOString().replaceAll(':', '-').replaceAll('.', '-');
-  return path.join(workspace, '.agentlens', 'snapshots', `scan-${stamp}.json`);
+  return path.join(workspace, '.ctxmeter', 'snapshots', `scan-${stamp}.json`);
 }
 
 function readProfiles() {
@@ -123,13 +147,45 @@ function telemetryReport(options, currentDirectory) {
   };
 }
 
-function run(argv = process.argv.slice(2), currentDirectory = process.cwd()) {
+const CONSENT_FLAG = '--i-understand-this-launches-servers';
+
+async function runMcpScan(options) {
+  const home = options.home || os.homedir();
+  const entries = mcpServerEntries(home);
+  if (options['dry-run']) return { summary: describeDryRun(entries) };
+  if (!options[CONSENT_FLAG.slice(2)]) {
+    throw new Error([
+      'mcp-scan starts every configured MCP server to read its tool list.',
+      'Tool schemas exist only in the live prompt, so there is no file to read instead.',
+      '',
+      'Inspect what would run first:',
+      '  ctxmeter mcp-scan --dry-run',
+      '',
+      'Then rerun with:',
+      `  ctxmeter mcp-scan ${CONSENT_FLAG}`,
+      '',
+      'Remote servers are skipped unless you also pass --allow-remote.',
+    ].join('\n'));
+  }
+  const result = await measureMcpCost(entries, {
+    timeoutMs: Number(options.timeout) > 0 ? Number(options.timeout) : 5_000,
+    allowRemote: options['allow-remote'] === true,
+  });
+  const workspace = path.resolve(options.workspace || process.cwd());
+  const cacheFile = mcpCachePath(workspace);
+  fs.mkdirSync(path.dirname(cacheFile), { recursive: true });
+  fs.writeFileSync(cacheFile, `${JSON.stringify(result, null, 2)}\n`);
+  return { summary: `${formatMcpCost(result)}\n\nCached to ${path.relative(workspace, cacheFile)}; audit will include it.` };
+}
+
+async function run(argv = process.argv.slice(2), currentDirectory = process.cwd()) {
   const options = parseArgs(argv);
+  if (options.command === 'mcp-scan') return runMcpScan(options);
   if (options.command === 'audit') {
     if (options.output) throw new Error('audit writes to stdout; --output is not supported');
     const workspace = path.resolve(options.workspace || currentDirectory);
     const snapshot = scanEnvironment({ home: options.home, workspace });
-    return { summary: formatAudit(auditReport(snapshot, readProfiles())) };
+    return { summary: formatAudit(auditReport(snapshot, readProfiles(), readMcpCache(workspace))) };
   }
   if (options.command === 'telemetry') {
     if (options.output) throw new Error('telemetry writes to stdout; --output is not supported');
@@ -145,13 +201,15 @@ function run(argv = process.argv.slice(2), currentDirectory = process.cwd()) {
 }
 
 if (require.main === module) {
-  try {
-    const result = run();
-    process.stdout.write(result.json ? `${JSON.stringify(result.json, null, 2)}\n` : `${result.summary}\n`);
-  } catch (error) {
-    process.stderr.write(`AgentLens error: ${error.message}\n`);
-    process.exitCode = 1;
-  }
+  Promise.resolve()
+    .then(() => run())
+    .then((result) => {
+      process.stdout.write(result.json ? `${JSON.stringify(result.json, null, 2)}\n` : `${result.summary}\n`);
+    })
+    .catch((error) => {
+      process.stderr.write(`ctxmeter error: ${error.message}\n`);
+      process.exitCode = 1;
+    });
 }
 
 module.exports = { auditReport, formatAudit, formatSummary, parseArgs, run, telemetrySummary };

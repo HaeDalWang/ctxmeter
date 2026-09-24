@@ -1,4 +1,4 @@
-import AgentLensBarCore
+import CtxmeterBarCore
 import SwiftUI
 
 struct PopoverView: View {

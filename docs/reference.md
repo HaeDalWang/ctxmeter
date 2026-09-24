@@ -2,11 +2,11 @@
 
 Detailed behaviour, data sources, and measurement limits. For the short version see the [README](../README.md).
 
-# AgentLens
+# ctxmeter
 
 Local, read-only observability for Claude Code, Codex, and Kiro configuration.
 
-AgentLens answers three questions without copying prompt or secret contents:
+ctxmeter answers three questions without copying prompt or secret contents:
 
 1. Which rules, skills, hooks, plugins, and steering assets exist?
 2. Which assets are active candidates versus backups, marketplace sources, or staging files?
@@ -21,7 +21,7 @@ npm run telemetry
 npm run dashboard
 ```
 
-The default scan writes a timestamped JSON snapshot under `.agentlens/snapshots/`.
+The default scan writes a timestamped JSON snapshot under `.ctxmeter/snapshots/`.
 `npm run telemetry` prints current session usage for all three harnesses as JSON on stdout and runs no inventory scan, which makes it the cheap path for an external status display. It takes about 0.2s including Node startup, against seconds for a full scan.
 The dashboard listens only on `http://127.0.0.1:4318`, lists local snapshots, and does not start unless you run `npm run dashboard`.
 To choose the target paths explicitly:
@@ -38,10 +38,10 @@ npm run scan -- --home /path/to/home --workspace /path/to/project --output ./sca
 - Codex: registered hook count, configured/enabled plugin and MCP counts, `AGENTS.md` size, skill metadata estimates including enabled plugin skills
 - Codex model and session telemetry: visible local models, effective/max context windows, first/latest input context, cache/output/reasoning totals, and compaction count
 - Kiro: custom agent, Power, steering, regular skill, separate Crew-skill counts, and v2 hook definitions from `~/.kiro/hooks` plus the workspace's `.kiro/hooks`
-- Kiro session telemetry: observed context **percentage** only. Kiro does not record absolute token counts locally, so AgentLens reports first/latest `context_usage_percentage`, the sample count, and credits, and leaves token totals unmeasured rather than deriving them from the percentage. Both stores are supported — `~/.kiro/sessions/<workspace>/sess_*/messages.jsonl` (IDE/ACP) and `~/.kiro/sessions/cli/*.json` (CLI) — and the newest matching session wins. Prompt-history files (`*.history`) are never read.
+- Kiro session telemetry: observed context **percentage** only. Kiro does not record absolute token counts locally, so ctxmeter reports first/latest `context_usage_percentage`, the sample count, and credits, and leaves token totals unmeasured rather than deriving them from the percentage. Both stores are supported — `~/.kiro/sessions/<workspace>/sess_*/messages.jsonl` (IDE/ACP) and `~/.kiro/sessions/cli/*.json` (CLI) — and the newest matching session wins. Prompt-history files (`*.history`) are never read.
 - Kiro Crew usage: credits total, record count, and date range, flagged `workspaceAttributable: false` because Crew records are aggregated per day and surface rather than per workspace
 
-When the winning Kiro store records no context window, AgentLens reuses a window observed for the same model in another local Kiro CLI session and marks it `contextWindowSource: "peer-session"`. That value is read from Kiro's own `model_info`, not guessed.
+When the winning Kiro store records no context window, ctxmeter reuses a window observed for the same model in another local Kiro CLI session and marks it `contextWindowSource: "peer-session"`. That value is read from Kiro's own `model_info`, not guessed.
 - Workspace instruction candidates
 - Non-loadable asset counts: backups, marketplace sources, and temporary staging files
 
@@ -54,9 +54,9 @@ Every discovered skill is also emitted as an asset record under its `skillGroups
 
 Asset records intentionally omit the skill description and body text. This keeps the inventory useful for analysis while avoiding prompt-content replication.
 
-Symlinked assets are followed. Sharing one skill or rule file across harnesses by symlink is common, and the harness loads it, so AgentLens counts it. Directory symlinks are followed with realpath-based cycle and duplicate detection, and broken symlinks are skipped rather than aborting the scan. Tracking begins only after a symlink is followed, so link-free trees keep their original walk cost.
+Symlinked assets are followed. Sharing one skill or rule file across harnesses by symlink is common, and the harness loads it, so ctxmeter counts it. Directory symlinks are followed with realpath-based cycle and duplicate detection, and broken symlinks are skipped rather than aborting the scan. Tracking begins only after a symlink is followed, so link-free trees keep their original walk cost.
 
-Skill bodies are not counted as baseline context. AgentLens estimates only YAML frontmatter bytes for skill metadata, because full skill bodies are typically loaded on demand.
+Skill bodies are not counted as baseline context. ctxmeter estimates only YAML frontmatter bytes for skill metadata, because full skill bodies are typically loaded on demand.
 
 ## Context budget and calibration
 
@@ -70,17 +70,17 @@ Choose `Claude Code` or `Codex` above the model row. Claude reads numeric usage 
 
 The checked-in [`config/context-profiles.json`](config/context-profiles.json) retains a `/context` sample observed on 2026-09-21 for Claude Opus 5 as a fallback when no local session usage exists. The dashboard does not require `/context` for observed totals.
 
-That fallback calibration records the inventory observed at the time. If the inventory changes, AgentLens does not present its old category totals as current. Live session totals remain available independently.
+That fallback calibration records the inventory observed at the time. If the inventory changes, ctxmeter does not present its old category totals as current. Live session totals remain available independently.
 
 The default view shows the latest input context. The first-response toggle includes the first user prompt for both harnesses. If the first response used a different model, its value is labeled as a proxy. Claude's context map reserves the configured autocompact buffer as an estimate of available working space.
 
-Known model capacities are sourced from Anthropic documentation. A locally discovered model without an exact matching profile remains visible with `용량 미확인`; AgentLens does not guess a capacity.
+Known model capacities are sourced from Anthropic documentation. A locally discovered model without an exact matching profile remains visible with `용량 미확인`; ctxmeter does not guess a capacity.
 
 Codex's budget denominator is the active session's reported context window when available, otherwise the installed CLI catalog's `context_window × effective_context_window_percent`. The catalog's `max_context_window` is shown separately as a local catalog ceiling. These are not the model's published API limit: the official API model pages currently list 1,050,000 tokens for GPT-6 Astra, GPT-5.6 Sol/Terra/Luna, and GPT-5.5. The dashboard displays that API specification separately with a source link. Codex configuration also supports model-context and auto-compaction overrides.
 
 ## Important limits
 
-`metadataTokenEstimate` is a byte-based heuristic, not the model's exact token count. Claude and Codex JSONL totals are observed, but neither attributes input tokens to system prompt, tools, skills, and messages separately; AgentLens subtracts static instruction/skill estimates and labels the remainder as unclassified. A Claude workspace without a local JSONL keeps the fallback file estimate or calibration. Historical snapshots update when `npm run scan` runs, while an open dashboard refreshes current numeric telemetry separately.
+`metadataTokenEstimate` is a byte-based heuristic, not the model's exact token count. Claude and Codex JSONL totals are observed, but neither attributes input tokens to system prompt, tools, skills, and messages separately; ctxmeter subtracts static instruction/skill estimates and labels the remainder as unclassified. A Claude workspace without a local JSONL keeps the fallback file estimate or calibration. Historical snapshots update when `npm run scan` runs, while an open dashboard refreshes current numeric telemetry separately.
 
 ## Dashboard
 

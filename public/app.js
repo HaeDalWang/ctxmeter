@@ -48,7 +48,7 @@ async function refreshSnapshotList() {
     const { snapshots } = await response.json();
     if (JSON.stringify(snapshots) === JSON.stringify(state.snapshotNames)) return;
     const previousSelection = $('snapshots').value;
-    const nextSelection = AgentLensModel.selectSnapshotOnRefresh(state.snapshotNames, previousSelection, snapshots);
+    const nextSelection = ctxmeterModel.selectSnapshotOnRefresh(state.snapshotNames, previousSelection, snapshots);
     state.snapshotNames = snapshots;
     $('snapshots').innerHTML = snapshots.map((name) => `<option>${esc(name)}</option>`).join('');
     if (nextSelection) $('snapshots').value = nextSelection;
@@ -83,7 +83,7 @@ function renderAgentTabs() {
 
 function selectHarness(harnessId) {
   state.harnessId = harnessId;
-  state.models = AgentLensModel.mergeModelProfiles(state.snapshot, state.contextProfiles, harnessId);
+  state.models = ctxmeterModel.mergeModelProfiles(state.snapshot, state.contextProfiles, harnessId);
   state.modelId = state.models.find((model) => model.selected)?.id || state.models[0]?.id || null;
   renderAgentTabs();
   renderModelTabs();
@@ -99,7 +99,7 @@ function setLiveStatus(message, active = false) {
 function configureLivePolling() {
   if (state.pollTimer) clearInterval(state.pollTimer);
   state.pollTimer = null;
-  if (!AgentLensModel.shouldPollHarnessRuntime(state.harnessId, document.visibilityState)) {
+  if (!ctxmeterModel.shouldPollHarnessRuntime(state.harnessId, document.visibilityState)) {
     setLiveStatus(document.visibilityState === 'hidden' ? '백그라운드 · 일시정지' : 'Snapshot mode');
     return;
   }
@@ -108,7 +108,7 @@ function configureLivePolling() {
 }
 
 async function refreshHarnessRuntime() {
-  if (state.refreshing || !AgentLensModel.shouldPollHarnessRuntime(state.harnessId, document.visibilityState)) return;
+  if (state.refreshing || !ctxmeterModel.shouldPollHarnessRuntime(state.harnessId, document.visibilityState)) return;
   const harnessId = state.harnessId;
   state.refreshing = true;
   setLiveStatus(`${harnessLabel[harnessId] || harnessId} 갱신 중…`, true);
@@ -119,8 +119,8 @@ async function refreshHarnessRuntime() {
     if (state.harnessId !== harnessId || document.visibilityState !== 'visible') return;
     const previousModelId = state.modelId;
     const previousSelectedModel = state.snapshot.harnesses?.[harnessId]?.modelCatalog?.selectedModel;
-    state.snapshot = AgentLensModel.mergeHarnessRuntime(state.snapshot, harnessId, runtime);
-    state.models = AgentLensModel.mergeModelProfiles(state.snapshot, state.contextProfiles, harnessId);
+    state.snapshot = ctxmeterModel.mergeHarnessRuntime(state.snapshot, harnessId, runtime);
+    state.models = ctxmeterModel.mergeModelProfiles(state.snapshot, state.contextProfiles, harnessId);
     state.modelId = previousModelId === previousSelectedModel
       ? state.models.find((model) => model.selected)?.id || previousModelId
       : state.models.some((model) => model.id === previousModelId) ? previousModelId : state.models[0]?.id || null;
@@ -184,7 +184,7 @@ function renderContextBudget() {
   const profile = state.models.find((model) => model.id === state.modelId);
   if (!profile) { $('context-budget').innerHTML = '<p class="muted">모델 프로필을 찾지 못했습니다.</p>'; return; }
   const calibration = (state.contextProfiles.calibrations || []).find((item) => item.harness === profile.harness);
-  const budget = AgentLensModel.buildContextBudget(state.snapshot, profile, calibration, state.mode);
+  const budget = ctxmeterModel.buildContextBudget(state.snapshot, profile, calibration, state.mode);
   const hasSessionTelemetry = Boolean(state.snapshot.harnesses?.[profile.harness]?.sessionTelemetry);
   const confidence = budget.confidence === 'stale-calibration' ? '설치 변경 · 현재 확인량'
     : budget.confidence === 'historical-observation' ? '과거 /context · 현재 아님'
@@ -217,7 +217,7 @@ function renderContextBudget() {
     : profile.harness === 'codex' ? '입력 총량은 이 작업공간의 JSONL 관측값입니다. AGENTS·Skills는 파일 추정, 나머지는 미분류입니다. cached input은 입력 총량에 포함되며 thread 누적은 현재 창 사용량이 아닙니다.' : hasSessionTelemetry ? `Claude input context는 이 작업공간의 로컬 JSONL에서 읽었습니다. 지침·Skills는 파일 추정, 나머지는 미분류입니다.${state.mode === 'first-session' ? ' 첫 사용자 메시지도 포함됩니다.' : ''}${budget.confidence === 'cross-model-proxy' ? ` 관측 모델: ${budget.calibrationModelId}.` : ''}` : budget.confidence === 'stale-calibration' ? '설치 구성이 이전 /context 측정 때와 달라졌습니다. 현재 파일 추정량만 표시하며 실제 첫 세션 사용량과 남은 공간은 다시 측정해야 합니다.' : budget.confidence === 'historical-observation' ? '이 값은 이전 설치 구성에서 기록된 /context 관측치입니다. 현재 사용량이 아닙니다.' : `카테고리 합계 ${compact(budget.breakdownTokens)} tokens · 숫자 배지를 통해 관측/프록시/파일 추정을 구분합니다.`;
   const minimum = budget.confidence === 'stale-calibration' ? '≥' : '';
   const freeLabel = profile.harness === 'kiro' ? '잔여' : budget.confidence === 'historical-observation' ? '그때 잔여' : budget.supplemental ? '기준 잔여 추정' : '작업 가능';
-  const configurationCosts = AgentLensModel.buildConfigurationCosts(state.snapshot, profile.harness);
+  const configurationCosts = ctxmeterModel.buildConfigurationCosts(state.snapshot, profile.harness);
   const home = state.snapshot.target?.home || '';
   const costRows = configurationCosts.map((item) => {
     const shownPath = home && item.path?.startsWith(`${home}/`) ? `~/${item.path.slice(home.length + 1)}` : item.path || '';
@@ -231,7 +231,7 @@ function renderContextBudget() {
 }
 
 function renderHarnessCards() {
-  const overview = AgentLensModel.buildContextOverview(state.snapshot);
+  const overview = ctxmeterModel.buildContextOverview(state.snapshot);
   const maximum = Math.max(...Object.values(overview).map((item) => item.knownBaselineTokens), 1);
   $('cards').innerHTML = Object.entries(overview).map(([id, item]) => `<article class="card ${item.risk}"><div class="card-title"><strong>${id.toUpperCase()}</strong><span class="badge">${item.risk}</span></div><b>${estimate(item.knownBaselineTokens)}</b><p>${item.skillCount} skills · ${item.hookCount} hooks</p><div class="meter"><span style="width:${Math.round(item.knownBaselineTokens / maximum * 100)}%"></span></div></article>`).join('');
 }

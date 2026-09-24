@@ -44,17 +44,39 @@ function skillFinding(harness) {
   };
 }
 
-/// MCP schemas and hook output exist only in the live prompt, never on disk.
-function unmeasuredItems(harness) {
+/// A cached `mcp-scan` turns the loudest unmeasured cost into a real number.
+function mcpFinding(harnessId, mcpCost) {
+  const measured = (mcpCost?.servers || [])
+    .filter((server) => server.harness === harnessId && server.status === 'measured');
+  if (!measured.length) return null;
+  const tokens = measured.reduce((total, server) => total + (server.estimatedTokens || 0), 0);
+  const toolCount = measured.reduce((total, server) => total + (server.toolCount || 0), 0);
+  const largest = measured.reduce((worst, server) => (server.estimatedTokens > worst.estimatedTokens ? server : worst));
+  return {
+    id: 'mcp',
+    label: 'MCP tool schemas',
+    tokens,
+    detail: `${toolCount} tools across ${measured.length} server${measured.length === 1 ? '' : 's'}; largest ${largest.name} at ${largest.estimatedTokens.toLocaleString('en-US')} tokens`,
+  };
+}
+
+/// Hook output exists only in the live prompt. MCP servers are unmeasured only
+/// until `mcp-scan` runs; servers it could not reach stay unmeasured.
+function unmeasuredItems(harnessId, harness, mcpCost) {
   const items = [];
-  const mcpCount = harness.configuredMcpServerCount || 0;
+  const measuredNames = new Set((mcpCost?.servers || [])
+    .filter((server) => server.harness === harnessId && server.status === 'measured')
+    .map((server) => server.name));
+  const mcpCount = Math.max((harness.configuredMcpServerCount || 0) - measuredNames.size, 0);
   if (mcpCount) {
     items.push({
       id: 'mcp',
       label: `${mcpCount} MCP server${mcpCount === 1 ? '' : 's'}`,
       count: mcpCount,
       tokens: null,
-      reason: 'tool schemas are injected at runtime and are not written to any local file',
+      reason: measuredNames.size
+        ? 'not reachable during the last mcp-scan'
+        : 'tool schemas are injected at runtime; run mcp-scan to measure them',
     });
   }
   const hookCount = harness.hookCount || 0;
@@ -70,8 +92,8 @@ function unmeasuredItems(harness) {
   return items;
 }
 
-function auditHarness(harnessId, harness, profiles) {
-  const findings = [instructionFinding(harnessId, harness), skillFinding(harness)]
+function auditHarness(harnessId, harness, profiles, mcpCost) {
+  const findings = [instructionFinding(harnessId, harness), skillFinding(harness), mcpFinding(harnessId, mcpCost)]
     .filter(Boolean)
     .sort((left, right) => right.tokens - left.tokens);
   const measuredStartupTokens = findings.reduce((total, finding) => total + finding.tokens, 0);
@@ -94,19 +116,20 @@ function auditHarness(harnessId, harness, profiles) {
     observedInputTokens,
     startupSharePercent: contextWindowTokens ? measuredStartupTokens / contextWindowTokens * 100 : null,
     findings,
-    unmeasured: unmeasuredItems(harness),
+    unmeasured: unmeasuredItems(harnessId, harness, mcpCost),
   };
 }
 
-function auditReport(snapshot, profiles = {}) {
+function auditReport(snapshot, profiles = {}, mcpCost = null) {
   const harnesses = Object.entries(snapshot.harnesses || {})
-    .map(([harnessId, harness]) => auditHarness(harnessId, harness, profiles))
+    .map(([harnessId, harness]) => auditHarness(harnessId, harness, profiles, mcpCost))
     .filter((entry) => entry.measuredStartupTokens || entry.unmeasured.length || entry.observedInputTokens !== null)
     .sort((left, right) => right.measuredStartupTokens - left.measuredStartupTokens);
 
   return {
     generatedAt: snapshot.generatedAt || null,
     workspace: snapshot.target?.workspace || null,
+    mcpMeasuredAt: mcpCost?.measuredAt || null,
     harnesses,
     totalMeasuredStartupTokens: harnesses.reduce((total, entry) => total + entry.measuredStartupTokens, 0),
   };
@@ -150,11 +173,17 @@ function formatAudit(report) {
     lines.push('');
   }
 
-  lines.push(
-    'Static figures are file bytes divided by four, not a tokenizer count.',
-    'MCP tool schemas are the largest reported cost in the wild and are deliberately',
-    'not estimated here: they are injected at runtime and never written to disk.',
-  );
+  lines.push('Static figures are file bytes divided by four, not a tokenizer count.');
+  if (report.mcpMeasuredAt) {
+    lines.push(`MCP schemas measured ${report.mcpMeasuredAt} by starting each server; rerun mcp-scan to refresh.`);
+  } else if (report.harnesses.some((harness) => harness.unmeasured.some((item) => item.id === 'mcp'))) {
+    lines.push(
+      'MCP tool schemas are the largest reported cost in the wild and are not included above.',
+      'They are injected at runtime and never written to disk. To measure them:',
+      '  ctxmeter mcp-scan --dry-run      # see what would be started',
+      '  ctxmeter mcp-scan --i-understand-this-launches-servers',
+    );
+  }
   return lines.join('\n');
 }
 

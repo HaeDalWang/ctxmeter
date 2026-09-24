@@ -1,4 +1,4 @@
-import AgentLensBarCore
+import CtxmeterBarCore
 import SwiftUI
 
 /// Colors follow the web dashboard's category palette so both surfaces match.

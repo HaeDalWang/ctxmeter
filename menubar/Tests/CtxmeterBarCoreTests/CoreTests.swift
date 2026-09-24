@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import AgentLensBarCore
+@testable import CtxmeterBarCore
 
 private let sampleJSON = """
 {
@@ -51,7 +51,7 @@ private let sampleJSON = """
 }
 
 @Test func menuBarLabelFallsBackWhenNothingIsObserved() {
-    #expect(Format.menuBarLabel(nil) == "AgentLens")
+    #expect(Format.menuBarLabel(nil) == "ctxmeter")
 
     let empty = TelemetryReport(
         schemaVersion: "0.1.0", generatedAt: "t",
@@ -59,7 +59,7 @@ private let sampleJSON = """
         harnesses: ["claude": .init(model: nil, contextWindowTokens: nil, inputTokens: nil,
                                    usagePercent: nil, observedAt: nil, store: nil, source: nil)]
     )
-    #expect(Format.menuBarLabel(empty) == "AgentLens")
+    #expect(Format.menuBarLabel(empty) == "ctxmeter")
 }
 
 @Test func compactTokensMatchesDashboardStyle() {

@@ -1,8 +1,8 @@
-import AgentLensBarCore
+import CtxmeterBarCore
 import SwiftUI
 
 enum DetailWindowID {
-    static let value = "agentlens-detail"
+    static let value = "ctxmeter-detail"
 }
 
 struct DetailView: View {

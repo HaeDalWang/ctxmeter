@@ -1,4 +1,4 @@
-import AgentLensBarCore
+import CtxmeterBarCore
 import Foundation
 import Observation
 
@@ -53,7 +53,7 @@ final class TelemetryStore {
 
     /// The bundled copy of the Node CLI, staged by `make bundle`.
     var scriptPath: String {
-        Bundle.main.resourceURL?.appendingPathComponent("agentlens/src/cli.js").path ?? ""
+        Bundle.main.resourceURL?.appendingPathComponent("ctxmeter/src/cli.js").path ?? ""
     }
 
     private let defaults: UserDefaults

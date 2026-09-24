@@ -1,6 +1,6 @@
 import Foundation
 
-/// Runs `agentlens telemetry` and decodes its JSON.
+/// Runs `ctxmeter telemetry` and decodes its JSON.
 ///
 /// The scanner logic deliberately stays in Node: it is already covered by the
 /// JavaScript test suite, and duplicating it in Swift would create two sources
@@ -17,7 +17,7 @@ public struct TelemetryLoader: Sendable {
             case .nodeNotFound:
                 "node 실행 파일을 찾지 못했습니다. 설정에서 경로를 지정하세요."
             case .scriptMissing(let path):
-                "agentlens CLI가 없습니다: \(path)"
+                "ctxmeter CLI가 없습니다: \(path)"
             case .processFailed(let status, let message):
                 "telemetry 실행 실패 (exit \(status)): \(message)"
             case .decodeFailed(let message):

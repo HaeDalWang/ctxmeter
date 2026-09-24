@@ -1,8 +1,8 @@
-import AgentLensBarCore
+import CtxmeterBarCore
 import SwiftUI
 
 @main
-struct AgentLensBarApp: App {
+struct CtxmeterBarApp: App {
     @State private var store = TelemetryStore()
 
     var body: some Scene {
@@ -25,7 +25,7 @@ struct AgentLensBarApp: App {
         }
         .menuBarExtraStyle(.window)
 
-        Window("AgentLens 상세", id: DetailWindowID.value) {
+        Window("ctxmeter 상세", id: DetailWindowID.value) {
             DetailView(store: store)
         }
         .windowResizability(.contentMinSize)
