@@ -39,12 +39,14 @@ function readJson(file) {
   }
 }
 
-function claudeEntries(home) {
-  const config = readJson(path.join(home, '.claude', 'mcp.json'));
+/// Claude and Kiro both use `mcpServers` with a `disabled` flag, so one reader
+/// serves both. Only the file location and the harness label differ.
+function jsonEntries(harness, file) {
+  const config = readJson(file);
   return Object.entries(config?.mcpServers || {})
     .filter(([, value]) => value && value.disabled !== true)
     .map(([name, value]) => ({
-      harness: 'claude',
+      harness,
       name,
       transport: value.command ? 'stdio' : 'http',
       command: value.command || null,
@@ -53,6 +55,14 @@ function claudeEntries(home) {
       env: value.env || {},
       url: value.url || null,
     }));
+}
+
+function claudeEntries(home) {
+  return jsonEntries('claude', path.join(home, '.claude', 'mcp.json'));
+}
+
+function kiroEntries(home) {
+  return jsonEntries('kiro', path.join(home, '.kiro', 'settings', 'mcp.json'));
 }
 
 /// Minimal TOML reading for `[mcp_servers.<name>]` blocks. The scanner already
@@ -96,12 +106,15 @@ function codexEntries(home) {
     if (pair[1] === 'args') {
       entry.args = [...pair[2].matchAll(/"([^"]*)"/g)].map((match) => match[1]);
     }
+    // Codex switches a server off in place. Honouring it matters twice over: a
+    // disabled server costs nothing, and starting it anyway can launch a GUI app.
+    if (pair[1] === 'enabled') entry.enabled = pair[2].trim() !== 'false';
   }
-  return [...entries.values()];
+  return [...entries.values()].filter((entry) => entry.enabled !== false);
 }
 
 function mcpServerEntries(home) {
-  return [...claudeEntries(home), ...codexEntries(home)];
+  return [...claudeEntries(home), ...codexEntries(home), ...kiroEntries(home)];
 }
 
 /// Shown before anything is executed so the user can inspect and refuse.

@@ -28,6 +28,15 @@ function readJson(file, fallback = {}) {
   }
 }
 
+/// Claude and Kiro both store servers under `mcpServers` with a `disabled` flag.
+/// A disabled server contributes nothing to the prompt, so counting it would
+/// overstate how much of the setup is unmeasured.
+function enabledMcpServerNames(config) {
+  return Object.entries(config?.mcpServers || {})
+    .filter(([, value]) => value && value.disabled !== true)
+    .map(([name]) => name);
+}
+
 function walkFiles(directory, predicate, files = [], visited = new Set(), tracking = false) {
   if (!exists(directory)) return files;
 
@@ -450,7 +459,7 @@ function scanClaude(home, workspace) {
   const claudeMd = fileSummary(path.join(root, 'CLAUDE.md'));
   const ruleFiles = walkFiles(path.join(root, 'rules'), (file) => file.endsWith('.md'));
   const hookCount = countHooks(settings.hooks);
-  const configuredMcpServerCount = Object.keys(readJson(path.join(root, 'mcp.json')).mcpServers || {}).length;
+  const configuredMcpServerCount = enabledMcpServerNames(readJson(path.join(root, 'mcp.json'))).length;
   const configurationCosts = [
     costItem('instructions', 'Global CLAUDE.md', path.join(root, 'CLAUDE.md'), 'startup'),
     ...directoryCostItems('rules', 'Rule file', path.join(root, 'rules'), '.md', 'conditional'),
@@ -509,6 +518,30 @@ function enabledCodexPluginIds(file) {
   return enabled;
 }
 
+/// `[mcp_servers.<name>]` blocks are live unless a block says `enabled = false`.
+/// That is the opposite default from `[plugins."..."]`, which must opt in, so the
+/// two cannot share one reader.
+function enabledCodexMcpServerNames(file) {
+  if (!fileExists(file)) return [];
+  const names = [];
+  let name = null;
+  let disabled = false;
+  for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
+    const section = line.match(/^\s*\[([^\]]+)\]/)?.[1];
+    if (section) {
+      if (name && !disabled) names.push(name);
+      // A `.env` sub-section clears the name, which is what stops keys inside it
+      // from being read as the server's own.
+      name = section.match(/^mcp_servers\.(?:"([^"]+)"|([^.]+))$/)?.slice(1).find(Boolean) || null;
+      disabled = false;
+    } else if (name && /^\s*enabled\s*=\s*false(?:\s*(?:#.*)?)?$/.test(line)) {
+      disabled = true;
+    }
+  }
+  if (name && !disabled) names.push(name);
+  return names;
+}
+
 function scanCodex(home, workspace) {
   const root = path.join(home, '.codex');
   const configFile = path.join(root, 'config.toml');
@@ -530,7 +563,7 @@ function scanCodex(home, workspace) {
   }
   const hookCount = countHooks(hooks.hooks);
   const configuredPluginCount = sections.filter((section) => /^plugins\.(?:"[^"]+"|[^.]+)$/.test(section)).length;
-  const configuredMcpServerCount = sections.filter((section) => /^mcp_servers\.(?:"[^"]+"|[^.]+)$/.test(section)).length;
+  const configuredMcpServerCount = enabledCodexMcpServerNames(configFile).length;
   const configurationCosts = [
     costItem('instructions', 'Global AGENTS instructions', agentsFile, 'startup'),
     ...walkFiles(path.join(root, 'rules'), (file) => file.endsWith('.rules'))
@@ -773,6 +806,7 @@ function scanKiro(home, workspace) {
     ...scanKiroRuntime(home, workspace),
     crewUsage: kiroCrewUsage(crewRoot),
     hookCount: kiroHookCount(root, workspace),
+    configuredMcpServerCount: enabledMcpServerNames(readJson(path.join(root, 'settings', 'mcp.json'))).length,
     customAgentCount: walkFiles(path.join(root, 'agents'), (file) => file.endsWith('.json')).length,
     powerCount: walkFiles(path.join(root, 'powers'), (file) => path.basename(file) === 'plugin.json').length,
     steering: (() => {

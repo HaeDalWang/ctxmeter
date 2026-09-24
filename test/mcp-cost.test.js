@@ -277,3 +277,64 @@ setInterval(() => process.stdout.write(chunk), 1);
   assert.match(result.servers[0].detail, /too much output/);
   assert.equal(result.servers[0].estimatedTokens, null);
 });
+
+
+test('a Codex server switched off with enabled = false is never started', () => {
+  // Arrange
+  const home = fixtureHome();
+  write(home, '.codex/config.toml', [
+    '[mcp_servers.live]',
+    'command = "node"',
+    'args = ["-e", "0"]',
+    '',
+    '[mcp_servers.switched_off]',
+    'command = "/Applications/SomeApp.app/Contents/MacOS/SomeApp"',
+    'enabled = false',
+    '',
+    '[mcp_servers.explicitly_on]',
+    'command = "node"',
+    'enabled = true',
+    '',
+  ].join('\n'));
+
+  // Act
+  const names = mcpServerEntries(home).map((entry) => entry.name);
+
+  // Assert
+  assert.deepEqual(names.sort(), ['explicitly_on', 'live']);
+});
+
+test('Kiro MCP servers are measured rather than left invisible', () => {
+  // Arrange
+  const home = fixtureHome();
+  write(home, '.kiro/settings/mcp.json', JSON.stringify({
+    mcpServers: {
+      'kiro-stdio': { command: 'node', args: ['-e', '0'] },
+      'kiro-remote': { url: 'https://example.invalid/mcp' },
+      'kiro-off': { command: 'node', disabled: true },
+    },
+  }));
+
+  // Act
+  const entries = mcpServerEntries(home);
+
+  // Assert
+  assert.deepEqual(entries.map((entry) => entry.harness), ['kiro', 'kiro']);
+  assert.deepEqual(entries.map((entry) => entry.name).sort(), ['kiro-remote', 'kiro-stdio']);
+  assert.equal(entries.find((entry) => entry.name === 'kiro-remote').transport, 'http');
+  assert.equal(entries.find((entry) => entry.name === 'kiro-stdio').transport, 'stdio');
+});
+
+test('all three harnesses contribute to one server list', () => {
+  // Arrange
+  const home = fixtureHome();
+  write(home, '.claude/mcp.json', JSON.stringify({ mcpServers: { 'claude-one': { command: 'node' } } }));
+  write(home, '.codex/config.toml', '[mcp_servers.codex-one]\ncommand = "node"\n');
+  write(home, '.kiro/settings/mcp.json', JSON.stringify({ mcpServers: { 'kiro-one': { command: 'node' } } }));
+
+  // Act
+  const harnesses = mcpServerEntries(home).map((entry) => entry.harness);
+
+  // Assert
+  assert.deepEqual(harnesses.sort(), ['claude', 'codex', 'kiro']);
+});
