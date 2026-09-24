@@ -7,7 +7,7 @@ macOS menu bar front end for ctxmeter. Shows current context occupancy per harne
 Full Xcode is not required; the Swift command line tools are enough.
 
 ```bash
-make test      # swift test, 10 core tests
+make test      # swift test, 21 core tests
 make bundle    # assembles .build/release/CtxmeterBar.app
 make run       # bundle, then launch
 make install   # copy to /Applications
@@ -43,7 +43,7 @@ The popover opens with an overview tab listing all three harnesses, followed by 
 
 One icon and one number, always. Three percentages side by side took 24 characters and crowded the menu bar out.
 
-On a harness tab the bar shows that harness. On the overview tab it shows whichever harness sits closest to its limit, which is the one number worth glancing at; ties fall to display order. The overview list marks that harness with a `상단바` pill so the connection is visible, and the full `CC 19% · CX 27% · KI 40%` summary moves to the hover tooltip and the accessibility label.
+On a harness tab the bar shows that harness. On the overview tab it shows whichever harness sits closest to its limit, which is the one number worth glancing at; ties fall to display order. The overview list marks that harness with a `menu bar` pill so the connection is visible, and the full `CC 19% · CX 27% · KI 40%` summary moves to the hover tooltip and the accessibility label.
 
 ## Refresh cost
 
@@ -51,13 +51,13 @@ On a harness tab the bar shows that harness. On the overview tab it shows whiche
 
 ## Units are not uniform
 
-Kiro records a context percentage and no token total. Claude and Codex record the reverse, so their percentage is derived from observed input tokens divided by a known context window. A model with no capacity profile shows `용량 미확인` and is left out of the menu bar label rather than being shown as 0%.
+Kiro records a context percentage and no token total. Claude and Codex record the reverse, so their percentage is derived from observed input tokens divided by a known context window. A model with no capacity profile shows `capacity unknown` and is left out of the menu bar label rather than being shown as 0%.
 
 All three currently resolve: Claude 18.8% of 1m, Codex 27.0% of 258.4k, Kiro 37.1% of 1m. Claude's `claude-opus-5-5` profile was added on the operator's confirmation of a 1M window; the capacity could not be read from Anthropic's docs by this tooling, and `capacityProvenance` in `config/context-profiles.json` records that.
 
 ## Scope
 
-One workspace at a time, chosen in Settings and defaulting to the repository this app was built from. Configuration costs and the skill inventory stay in the web dashboard (`npm run dashboard`).
+One workspace at a time, chosen in Settings and defaulting to the repository this app was built from. Configuration costs and the skill inventory stay in the web dashboard (`npx ctxmeter dashboard`).
 
 ## Not verified
 
