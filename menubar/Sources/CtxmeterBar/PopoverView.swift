@@ -20,6 +20,10 @@ struct PopoverView: View {
 
             content
 
+            if let update = store.availableUpdate {
+                UpdateBanner(update: update)
+            }
+
             Divider()
             footer
         }

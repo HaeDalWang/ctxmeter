@@ -9,6 +9,7 @@ public enum AppSettings {
     public static let workspaceKey = "workspacePath"
     public static let nodePathKey = "nodePathOverride"
     public static let selectedTabKey = "selectedTab"
+    public static let checkForUpdatesKey = "checkForUpdates"
 
     /// A stored value can be absent, corrupt, or hostile to a Timer. Fail to the
     /// default rather than scheduling something unbounded.

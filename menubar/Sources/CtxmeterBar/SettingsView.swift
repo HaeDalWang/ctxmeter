@@ -39,6 +39,12 @@ struct SettingsView: View {
                 Text("A menu bar app inherits a minimal PATH and may not find node on its own. Leave blank to search the known install paths in order.")
                     .font(.system(size: 10)).foregroundStyle(.secondary)
             }
+
+            Section("Updates") {
+                Toggle("Check for new releases", isOn: $store.checkForUpdates)
+                Text("Version \(store.installedVersion). Once at launch and once a day, reads the latest release from api.github.com and shows a notice when a newer one exists. Nothing is sent and nothing is installed. This is the app's only network request.")
+                    .font(.system(size: 10)).foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
         .frame(width: 440)

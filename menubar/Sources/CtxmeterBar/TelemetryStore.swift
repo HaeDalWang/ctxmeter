@@ -58,6 +58,24 @@ final class TelemetryStore {
         }
     }
 
+    /// On by default; the only network request the app makes.
+    var checkForUpdates: Bool {
+        didSet {
+            guard checkForUpdates != oldValue else { return }
+            defaults.set(checkForUpdates, forKey: AppSettings.checkForUpdatesKey)
+            if checkForUpdates { Task { await checkForUpdateIfDue() } } else { availableUpdate = nil }
+        }
+    }
+
+    private(set) var availableUpdate: AvailableUpdate?
+    /// In memory only: one check per launch, then once a day while running.
+    private var lastUpdateCheck: Date?
+    private static let updateRetryAfterFailure: TimeInterval = 60 * 60
+
+    var installedVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
+    }
+
     var menuBarText: String { Format.menuBarText(report, tab: selectedTab) }
 
     /// Whose icon the menu bar shows. `nil` means no harness has a percentage,
@@ -86,6 +104,7 @@ final class TelemetryStore {
             ?? FileManager.default.homeDirectoryForCurrentUser.path
         nodePathOverride = defaults.string(forKey: AppSettings.nodePathKey) ?? ""
         selectedTab = PopoverTab(storageKey: defaults.string(forKey: AppSettings.selectedTabKey))
+        checkForUpdates = defaults.object(forKey: AppSettings.checkForUpdatesKey) as? Bool ?? true
     }
 
     func start() {
@@ -111,6 +130,27 @@ final class TelemetryStore {
             errorMessage = error.localizedDescription
         }
         await refreshHistoryIfStale()
+        await checkForUpdateIfDue()
+    }
+
+    /// Reads the latest GitHub release and compares tags. Sends nothing but the
+    /// request itself; a failure is silent and retried an hour later.
+    func checkForUpdateIfDue() async {
+        guard checkForUpdates, UpdateCheck.isDue(lastChecked: lastUpdateCheck, now: Date()) else { return }
+        let now = Date()
+        // Provisional: if this attempt fails, the next one is an hour away, not a day.
+        lastUpdateCheck = now.addingTimeInterval(Self.updateRetryAfterFailure - UpdateCheck.interval)
+        var request = URLRequest(url: UpdateCheck.latestReleaseAPI, timeoutInterval: 10)
+        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        request.setValue("CtxmeterBar/\(installedVersion)", forHTTPHeaderField: "User-Agent")
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard (response as? HTTPURLResponse)?.statusCode == 200 else { return }
+            availableUpdate = try UpdateCheck.available(current: installedVersion, releaseJSON: data)
+            lastUpdateCheck = now
+        } catch {
+            return
+        }
     }
 
     /// History is best effort: a failure leaves the last chart in place rather
