@@ -1,5 +1,7 @@
 <h1 align="center">ctxmeter</h1>
 
+<p align="center"><b>English</b> · <a href="README.ko.md">한국어</a></p>
+
 <p align="center"><b>Your AI coding agent burns tens of thousands of tokens before you type a single character.<br/>This tells you how many, where they went, and switches off the ones you pick.</b></p>
 
 <p align="center">
