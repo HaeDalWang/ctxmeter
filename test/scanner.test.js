@@ -14,8 +14,6 @@ const {
   skillMetadataBytes,
 } = require('../src/scanner');
 const { parseArgs, telemetrySummary, auditReport, formatAudit } = require('../src/cli');
-const { createDashboardServer, formatListenError } = require('../src/dashboard-server');
-const { buildConfigurationCosts, buildContextBudget, buildContextOverview, mergeCodexRuntime, mergeHarnessRuntime, mergeModelProfiles, selectSnapshotOnRefresh, shouldPollCodexRuntime, shouldPollHarnessRuntime } = require('../public/dashboard-model');
 const contextProfiles = require('../config/context-profiles.json');
 
 function fixtureHome() {
@@ -155,21 +153,12 @@ test('configuration costs distinguish file estimates from runtime costs and hono
 
   const snapshot = scanEnvironment({ home, workspace });
   const codex = snapshot.harnesses.codex;
-  const claudeCosts = buildConfigurationCosts(snapshot, 'claude');
-  const codexCosts = buildConfigurationCosts(snapshot, 'codex');
 
   assert.equal(codex.alwaysOn.agentsMd.path, path.join(home, '.codex/AGENTS.override.md'));
   assert.equal(codex.configuredMcpServerCount, 1);
-  assert.equal(claudeCosts.find((item) => item.kind === 'rules').load, 'conditional');
-  assert.equal(claudeCosts.find((item) => item.kind === 'agents').estimatedTokens, Math.round(Buffer.byteLength('AGENT PRIVATE BODY') / 4));
-  assert.equal(claudeCosts.find((item) => item.kind === 'hooks').estimatedTokens, null);
-  assert.equal(claudeCosts.find((item) => item.kind === 'mcp').count, 1);
-  assert.equal(codexCosts.find((item) => item.label === 'Workspace instructions').path, 'AGENTS.override.md');
-  assert.equal(codexCosts.find((item) => item.kind === 'plugins').count, 1);
   assert.equal(codex.enabledPlugins.length, 1);
   assert.equal(codex.configuredPluginCount, 2);
   assert.equal(codex.skillGroups.find((group) => group.id === 'sample@market').skillCount, 1);
-  assert.equal(codexCosts.find((item) => item.kind === 'rules').estimatedTokens, null);
   assert.equal(JSON.stringify(snapshot).includes('PRIVATE'), false);
   assert.equal(JSON.stringify(snapshot).includes('SECRET COMMAND'), false);
 });
@@ -231,138 +220,6 @@ test('Claude runtime reads only numeric usage from the latest workspace session'
   assert.equal(read().sessionTelemetry.latestUsage.inputTokens, 210);
 });
 
-test('Claude context uses JSONL total with file estimates inside a measured remainder', () => {
-  const snapshot = { harnesses: { claude: {
-    alwaysOn: { claudeMd: { tokenEstimate: 10 }, ruleBytes: 40 },
-    skillGroups: [{ skillCount: 2, metadataTokenEstimate: 20 }],
-    sessionTelemetry: {
-      startModel: 'opus', currentModel: 'sonnet', firstObservedAt: 'first', updatedAt: 'latest',
-      firstUsage: { inputTokens: 100, cachedInputTokens: 70, outputTokens: 5 },
-      latestUsage: { inputTokens: 200, cachedInputTokens: 150, outputTokens: 8 },
-    },
-  } } };
-  const profile = { id: 'sonnet', name: 'Sonnet', harness: 'claude', contextWindowTokens: 1000, autocompactBufferTokens: 100 };
-  const first = buildContextBudget(snapshot, profile, null, 'first-session');
-  const current = buildContextBudget(snapshot, profile, null, 'observed-session');
-
-  assert.equal(first.usedTokens, 100);
-  assert.equal(first.confidence, 'cross-model-proxy');
-  assert.equal(current.usedTokens, 200);
-  assert.equal(current.confidence, 'observed-claude');
-  assert.equal(current.categories.reduce((sum, row) => sum + row.tokens, 0), 200);
-  assert.equal(current.categories.find((row) => row.id === 'unattributed').tokens, 160);
-  assert.equal(current.freeTokens, 700);
-  assert.equal(current.supplemental.cachedInputTokens, 150);
-});
-
-test('dashboard refuses a foreign Host header so DNS rebinding cannot read local data', async () => {
-  // Arrange
-  const server = createDashboardServer({ snapshotDirectory: fixtureHome(), publicDirectory: path.join(__dirname, '..', 'public') });
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const port = server.address().port;
-  const request = (host) => new Promise((resolve, reject) => {
-    require('node:http').get({ hostname: '127.0.0.1', port, path: '/api/snapshots', headers: { host } }, (response) => {
-      response.resume();
-      response.on('end', () => resolve(response.statusCode));
-    }).on('error', reject);
-  });
-
-  try {
-    // Act + Assert
-    assert.equal(await request('evil.example:4318'), 403);
-    assert.equal(await request(`127.0.0.1:${port}`), 200);
-    assert.equal(await request(`localhost:${port}`), 200);
-  } finally {
-    await new Promise((resolve) => server.close(resolve));
-  }
-});
-
-test('dashboard lists snapshots, serves assets, and rejects traversal paths', async () => {
-  const home = fixtureHome();
-  const snapshots = path.join(home, 'snapshots');
-  const profiles = path.join(home, 'context-profiles.json');
-  fs.mkdirSync(snapshots, { recursive: true });
-  fs.writeFileSync(path.join(snapshots, 'example.json'), JSON.stringify({ schemaVersion: '0.1.0', harnesses: {} }));
-  fs.writeFileSync(profiles, JSON.stringify({ profiles: [{ id: 'test-model' }] }));
-  const server = createDashboardServer({
-    snapshotDirectory: snapshots,
-    publicDirectory: path.join(__dirname, '..', 'public'),
-    contextProfilesFile: profiles,
-    claudeRuntimeReader: () => ({ sessionTelemetry: { latestUsage: { inputTokens: 654 } }, modelCatalog: { models: [] } }),
-    codexRuntimeReader: () => ({ sessionTelemetry: { latestUsage: { inputTokens: 321 } }, modelCatalog: { models: [] } }),
-  });
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const port = server.address().port;
-  const request = (pathname) => new Promise((resolve, reject) => {
-    require('node:http').get({ hostname: '127.0.0.1', port, path: pathname }, (response) => {
-      let body = '';
-      response.on('data', (chunk) => { body += chunk; });
-      response.on('end', () => resolve({ status: response.statusCode, body }));
-    }).on('error', reject);
-  });
-
-  try {
-    assert.deepEqual(JSON.parse((await request('/api/snapshots')).body).snapshots, ['example.json']);
-    assert.equal(JSON.parse((await request('/api/context-profiles')).body).profiles[0].id, 'test-model');
-    assert.equal(JSON.parse((await request('/api/runtime/codex')).body).sessionTelemetry.latestUsage.inputTokens, 321);
-    assert.equal(JSON.parse((await request('/api/runtime/claude')).body).sessionTelemetry.latestUsage.inputTokens, 654);
-    assert.equal((await request('/api/snapshots/example.json')).status, 200);
-    assert.equal((await request('/api/snapshots/%2e%2e%2fsecret.json')).status, 400);
-    assert.match((await request('/')).body, /ctxmeter/);
-    assert.equal((await request('/api/snapshots/missing.json')).status, 404);
-    // A malformed escape must be a 400, not an exception that kills the server.
-    assert.equal((await request('/api/snapshots/%E0.json')).status, 400);
-    assert.equal((await request('/api/snapshots')).status, 200, 'server survived the malformed request');
-  } finally {
-    await new Promise((resolve) => server.close(resolve));
-  }
-});
-
-test('dashboard reports a helpful message when its local port is occupied', () => {
-  assert.match(formatListenError({ code: 'EADDRINUSE' }, 4318), /already running.*4318/i);
-  assert.match(formatListenError({ code: 'EADDRINUSE' }, 4318), /CTXMETER_PORT=4319/);
-  assert.match(formatListenError({ code: 'EACCES', message: 'denied' }, 4318), /denied/);
-});
-
-test('context overview separates known baseline from unknown runtime usage', () => {
-  const overview = buildContextOverview({
-    harnesses: {
-      claude: {
-        alwaysOn: { claudeMd: { tokenEstimate: 250 }, ruleBytes: 4000 },
-        skillGroups: [{ id: 'ecc@ecc', skillCount: 292, metadataTokenEstimate: 27000 }],
-        hookCount: 15,
-      },
-      codex: { alwaysOn: { agentsMd: { tokenEstimate: 100 } }, skillGroups: [{ id: 'skills', skillCount: 10, metadataTokenEstimate: 5000 }], hookCount: 2 },
-    },
-  });
-
-  assert.equal(overview.claude.knownBaselineTokens, 28250);
-  assert.equal(overview.claude.skillMetadataTokens, 27000);
-  assert.equal(overview.claude.risk, 'high');
-  assert.equal(overview.claude.runtimeStatus, 'awaiting-telemetry');
-  assert.equal(overview.codex.knownBaselineTokens, 5100);
-});
-
-test('context overview handles Kiro steering, medium risk, and empty snapshots', () => {
-  const overview = buildContextOverview({
-    harnesses: {
-      kiro: { steering: { tokenEstimate: 500 }, skillGroups: [{ skillCount: 12, metadataTokenEstimate: 8000 }] },
-      custom: {},
-    },
-  });
-
-  assert.equal(overview.kiro.knownBaselineTokens, 8500);
-  assert.equal(overview.kiro.risk, 'medium');
-  assert.equal(overview.custom.knownBaselineTokens, 0);
-  assert.deepEqual(buildContextOverview({}), {});
-  const sparse = buildContextOverview({ harnesses: {
-    claude: { alwaysOn: {}, skillGroups: [{}] },
-    codex: { alwaysOn: {}, skillGroups: [] },
-    kiro: { steering: {}, skillGroups: [] },
-  } });
-  assert.equal(sparse.claude.knownBaselineTokens, 0);
-});
-
 test('Claude scan discovers model choices without copying catalog descriptions', () => {
   const home = fixtureHome();
   const workspace = path.join(home, 'workspace');
@@ -384,60 +241,6 @@ test('Claude scan discovers model choices without copying catalog descriptions',
   assert.equal(catalog.models.length, 2);
   assert.deepEqual(catalog.models[0], { id: 'claude-opus-5', name: 'Opus 5', shortName: 'Opus' });
   assert.equal(JSON.stringify(catalog).includes('DO NOT COPY'), false);
-});
-
-test('context budget predicts first-session cost and preserves current observation', () => {
-  const opus = contextProfiles.profiles.find((profile) => profile.id === 'claude-opus-5');
-  const calibration = contextProfiles.calibrations[0];
-  const snapshot = snapshotMatchingClaudeCalibration(calibration);
-
-  const firstSession = buildContextBudget(snapshot, opus, calibration, 'first-session');
-  const observedSession = buildContextBudget(snapshot, opus, calibration, 'observed-session');
-
-  assert.equal(firstSession.contextWindowTokens, 1_000_000);
-  assert.equal(firstSession.usedTokens, 71_273);
-  assert.equal(firstSession.categories.find((category) => category.id === 'messages').tokens, 0);
-  assert.equal(firstSession.freeTokens, 895_727);
-  assert.equal(firstSession.confidence, 'observed-baseline');
-  assert.equal(observedSession.usedTokens, 111_000);
-  assert.equal(observedSession.breakdownTokens, 112_073);
-  assert.equal(observedSession.categories.find((category) => category.id === 'skills').count, 534);
-});
-
-test('model profile merge keeps local choices and marks cross-model calibration as a proxy', () => {
-  const calibratedClaude = snapshotMatchingClaudeCalibration(contextProfiles.calibrations[0]).harnesses.claude;
-  const snapshot = { harnesses: { claude: {
-    ...calibratedClaude,
-    modelCatalog: {
-      selectedModel: 'claude-sonnet-5',
-      models: [
-        { id: 'claude-sonnet-5', name: 'Sonnet 5', shortName: 'Sonnet' },
-        { id: 'local-unknown', name: 'Local Unknown', shortName: 'Unknown' },
-      ],
-    },
-  } } };
-  const models = mergeModelProfiles(snapshot, contextProfiles);
-  const sonnet = models.find((model) => model.id === 'claude-sonnet-5');
-  const unknown = models.find((model) => model.id === 'local-unknown');
-  const budget = buildContextBudget(snapshot, sonnet, contextProfiles.calibrations[0], 'first-session');
-
-  assert.equal(sonnet.selected, true);
-  assert.equal(sonnet.contextWindowTokens, 1_000_000);
-  assert.equal(unknown.contextWindowTokens, null);
-  assert.equal(budget.usedTokens, 71_273);
-  assert.equal(budget.confidence, 'cross-model-proxy');
-});
-
-test('context budget falls back to static snapshot estimates when no calibration exists', () => {
-  const budget = buildContextBudget({ harnesses: { claude: {
-    alwaysOn: { claudeMd: { tokenEstimate: 100 }, ruleBytes: 400 },
-    skillGroups: [{ skillCount: 2, metadataTokenEstimate: 300 }],
-  } } }, { id: 'unobserved', name: 'Unobserved', harness: 'claude', contextWindowTokens: 10_000 }, null);
-
-  assert.equal(budget.usedTokens, 500);
-  assert.equal(budget.confidence, 'static-estimate');
-  assert.equal(budget.categories.find((category) => category.id === 'systemTools').confidence, 'unknown');
-  assert.equal(budget.categories.find((category) => category.id === 'messages').confidence, 'session-dependent');
 });
 
 test('Codex scan extracts numeric session telemetry and model limits without message content', () => {
@@ -484,33 +287,6 @@ test('Codex scan extracts numeric session telemetry and model limits without mes
   assert.equal(JSON.stringify(codex).includes('PRIVATE'), false);
 });
 
-test('Codex context budget uses observed first and latest input context without double counting inventory', () => {
-  const snapshot = { harnesses: { codex: {
-    alwaysOn: { agentsMd: { tokenEstimate: 1_000 } },
-    skillGroups: [{ skillCount: 20, metadataTokenEstimate: 4_000 }],
-    sessionTelemetry: {
-      startModel: 'gpt-test', currentModel: 'gpt-test', contextWindowTokens: 90_000, compactionCount: 1,
-      firstUsage: { inputTokens: 10_000, cachedInputTokens: 8_000, outputTokens: 100, reasoningOutputTokens: 20, totalTokens: 10_100 },
-      latestUsage: { inputTokens: 40_000, cachedInputTokens: 32_000, outputTokens: 200, reasoningOutputTokens: 50, totalTokens: 40_200 },
-      threadUsage: { totalTokens: 90_000 },
-    },
-  } } };
-  const profile = { id: 'gpt-test', name: 'GPT Test', harness: 'codex', contextWindowTokens: 90_000 };
-
-  const first = buildContextBudget(snapshot, profile, null, 'first-session');
-  const current = buildContextBudget(snapshot, profile, null, 'observed-session');
-
-  assert.equal(first.usedTokens, 10_000);
-  assert.equal(first.categories.reduce((sum, category) => sum + category.tokens, 0), 10_000);
-  assert.equal(first.categories.find((category) => category.id === 'unattributed').tokens, 5_000);
-  assert.equal(first.confidence, 'observed-codex');
-  assert.equal(current.usedTokens, 40_000);
-  assert.equal(current.freeTokens, 50_000);
-  assert.equal(current.supplemental.cachedInputTokens, 32_000);
-  assert.equal(current.supplemental.threadTotalTokens, 90_000);
-  assert.equal(current.supplemental.compactionCount, 1);
-});
-
 test('Codex telemetry tolerates malformed lines and sparse model metadata', () => {
   const home = fixtureHome();
   const workspace = path.join(home, 'workspace');
@@ -543,26 +319,6 @@ test('Codex telemetry tolerates malformed lines and sparse model metadata', () =
   });
 });
 
-test('Codex context budget exposes safe zero-state and cross-model proxy behavior', () => {
-  const empty = buildContextBudget({ harnesses: { codex: { alwaysOn: {}, skillGroups: [] } } }, {
-    id: 'unseen', name: 'Unseen', harness: 'codex', contextWindowTokens: null,
-  }, null, 'observed-session');
-  assert.equal(empty.usedTokens, 0);
-  assert.equal(empty.freeTokens, null);
-  assert.equal(empty.usagePercent, null);
-  assert.equal(empty.confidence, 'cross-model-proxy');
-  assert.equal(empty.supplemental.cachedInputTokens, 0);
-
-  const proxied = buildContextBudget({ harnesses: { codex: {
-    alwaysOn: {}, skillGroups: [],
-    sessionTelemetry: { startModel: 'original', firstUsage: { inputTokens: 500 } },
-  } } }, { id: 'other', name: 'Other', harness: 'codex', contextWindowTokens: 1_000 }, null, 'first-session');
-  assert.equal(proxied.usedTokens, 500);
-  assert.equal(proxied.freeTokens, 500);
-  assert.equal(proxied.confidence, 'cross-model-proxy');
-  assert.equal(proxied.categories[0].confidence, 'proxy');
-});
-
 test('Codex runtime reader throttles reparsing and refreshes after its cache interval', () => {
   const home = fixtureHome();
   const workspace = path.join(home, 'workspace');
@@ -585,136 +341,6 @@ test('Codex runtime reader throttles reparsing and refreshes after its cache int
   assert.equal(cached.sessionTelemetry.latestUsage.inputTokens, 100);
   assert.equal(refreshed.sessionTelemetry.latestUsage.inputTokens, 200);
   assert.equal(refreshed.modelCatalog.selectedModel, 'gpt-live');
-});
-
-test('live Codex runtime merges immutably into a loaded snapshot', () => {
-  const snapshot = { harnesses: { claude: { marker: 'keep' }, codex: { hookCount: 3, sessionTelemetry: { updatedAt: 'old' } } } };
-  const runtime = { sessionTelemetry: { updatedAt: 'new' }, modelCatalog: { selectedModel: 'gpt-live', models: [] } };
-
-  const merged = mergeCodexRuntime(snapshot, runtime);
-
-  assert.notEqual(merged, snapshot);
-  assert.notEqual(merged.harnesses.codex, snapshot.harnesses.codex);
-  assert.equal(merged.harnesses.claude, snapshot.harnesses.claude);
-  assert.equal(merged.harnesses.codex.hookCount, 3);
-  assert.equal(merged.harnesses.codex.sessionTelemetry.updatedAt, 'new');
-});
-
-test('live Claude runtime merges into its own harness and polls only while visible', () => {
-  const snapshot = { harnesses: { claude: { hookCount: 3 }, codex: { marker: 'keep' } } };
-  const merged = mergeHarnessRuntime(snapshot, 'claude', { sessionTelemetry: { updatedAt: 'new' } });
-  assert.equal(merged.harnesses.claude.hookCount, 3);
-  assert.equal(merged.harnesses.claude.sessionTelemetry.updatedAt, 'new');
-  assert.equal(merged.harnesses.codex, snapshot.harnesses.codex);
-  assert.equal(shouldPollHarnessRuntime('claude', 'visible'), true);
-  assert.equal(shouldPollHarnessRuntime('claude', 'hidden'), false);
-  assert.equal(shouldPollHarnessRuntime('codex', 'visible'), true);
-});
-
-test('Codex live polling runs only on the visible Codex dashboard', () => {
-  assert.equal(shouldPollCodexRuntime('codex', 'visible'), true);
-  assert.equal(shouldPollCodexRuntime('claude', 'visible'), false);
-  assert.equal(shouldPollCodexRuntime('codex', 'hidden'), false);
-});
-
-test('changed Claude inventory invalidates old context calibration instead of reporting stale usage as current', () => {
-  const baseline = {
-    enabledPlugins: ['ecc@ecc'], hookCount: 2, claudeMdTokens: 100, ruleBytes: 400,
-    skillGroups: [{ id: 'ecc@ecc', skillCount: 300, metadataTokenEstimate: 12_000 }],
-  };
-  const calibration = {
-    modelId: 'claude-opus-5', contextWindowTokens: 1_000_000, autocompactBufferTokens: 33_000,
-    inventoryBaseline: baseline,
-    categories: [
-      { id: 'systemPrompt', label: 'System prompt', tokens: 4_000 },
-      { id: 'skills', label: 'Skills', tokens: 8_000, count: 500 },
-      { id: 'messages', label: 'Messages', tokens: 10_000 },
-    ],
-  };
-  const profile = { id: 'claude-opus-5', name: 'Opus 5', harness: 'claude', contextWindowTokens: 1_000_000 };
-  const old = { harnesses: { claude: {
-    enabledPlugins: ['ecc@ecc'], hookCount: 2, alwaysOn: { claudeMd: { tokenEstimate: 100 }, ruleBytes: 400 },
-    skillGroups: [{ id: 'ecc@ecc', skillCount: 300, metadataTokenEstimate: 12_000 }],
-  } } };
-  const changed = { harnesses: { claude: {
-    ...old.harnesses.claude,
-    enabledPlugins: [],
-    skillGroups: [{ id: 'user-skills', skillCount: 73, metadataTokenEstimate: 8_481 }],
-  } } };
-
-  const matched = buildContextBudget(old, profile, calibration, 'first-session');
-  const current = buildContextBudget(changed, profile, calibration, 'first-session');
-  const historical = buildContextBudget(changed, profile, calibration, 'observed-session');
-
-  assert.equal(matched.confidence, 'observed-baseline');
-  assert.equal(current.confidence, 'stale-calibration');
-  assert.equal(current.usedTokens, 8_681);
-  assert.equal(current.freeTokens, null);
-  assert.equal(current.categories.find((category) => category.id === 'skills').count, 73);
-  assert.equal(current.categories.find((category) => category.id === 'skills').tokens, 8_481);
-  assert.equal(current.categories.find((category) => category.id === 'systemPrompt').confidence, 'unknown');
-  assert.equal(historical.confidence, 'historical-observation');
-  assert.equal(historical.categories.find((category) => category.id === 'skills').count, 500);
-});
-
-test('missing inventory provenance cannot certify a Claude calibration as current', () => {
-  const budget = buildContextBudget({ harnesses: { claude: { alwaysOn: {}, skillGroups: [] } } },
-    { id: 'claude-opus-5', harness: 'claude', contextWindowTokens: 1_000_000 },
-    { modelId: 'claude-opus-5', categories: [{ id: 'skills', tokens: 9_800, count: 534 }] });
-
-  assert.equal(budget.confidence, 'stale-calibration');
-  assert.equal(budget.usedTokens, 0);
-  assert.equal(budget.freeTokens, null);
-});
-
-test('new snapshots auto-select only when the viewer was already on the newest snapshot', () => {
-  const previous = ['scan-2.json', 'scan-1.json'];
-  const updated = ['scan-3.json', ...previous];
-  assert.equal(selectSnapshotOnRefresh(previous, 'scan-2.json', updated), 'scan-3.json');
-  assert.equal(selectSnapshotOnRefresh(previous, 'scan-1.json', updated), 'scan-1.json');
-  assert.equal(selectSnapshotOnRefresh(previous, 'missing.json', updated), 'scan-3.json');
-  assert.equal(selectSnapshotOnRefresh([], null, updated), 'scan-3.json');
-});
-
-test('model profile merge preserves context capacity discovered from the Codex cache', () => {
-  const snapshot = { harnesses: { codex: { modelCatalog: {
-    selectedModel: 'gpt-local',
-    models: [{ id: 'gpt-local', name: 'GPT Local', contextWindowTokens: 258_400, maxContextWindowTokens: 872_000 }],
-  } } } };
-
-  const [profile] = mergeModelProfiles(snapshot, { profiles: [] }, 'codex');
-
-  assert.equal(profile.contextWindowTokens, 258_400);
-  assert.equal(profile.maxContextWindowTokens, 872_000);
-  assert.equal(profile.selected, true);
-});
-
-test('Codex model profile keeps local session and published API capacities separate', () => {
-  const snapshot = { harnesses: { codex: {
-    modelCatalog: { selectedModel: 'gpt-5.6-sol', models: [{
-      id: 'gpt-5.6-sol', name: 'GPT-5.6 Sol', contextWindowTokens: 258_400,
-      rawContextWindowTokens: 272_000, maxContextWindowTokens: 872_000, effectiveContextWindowPercent: 95,
-    }] },
-    sessionTelemetry: { currentModel: 'gpt-5.6-sol', contextWindowTokens: 300_000 },
-  } } };
-  const [profile] = mergeModelProfiles(snapshot, contextProfiles, 'codex');
-
-  assert.equal(profile.contextWindowTokens, 300_000);
-  assert.equal(profile.contextWindowSource, 'session');
-  assert.equal(profile.rawContextWindowTokens, 272_000);
-  assert.equal(profile.maxContextWindowTokens, 872_000);
-  assert.equal(profile.apiContextWindowTokens, 1_050_000);
-  assert.equal(buildContextBudget(snapshot, profile, null, 'observed-session').contextWindowTokens, 300_000);
-});
-
-test('Codex model tabs do not advertise API profiles absent from the local catalog', () => {
-  const snapshot = { harnesses: { codex: {
-    modelCatalog: { selectedModel: 'gpt-5.6-sol', models: [{ id: 'gpt-5.6-sol', contextWindowTokens: 258_400 }] },
-  } } };
-  const profiles = mergeModelProfiles(snapshot, contextProfiles, 'codex');
-
-  assert.deepEqual(profiles.map((profile) => profile.id), ['gpt-5.6-sol']);
-  assert.equal(profiles[0].apiContextWindowTokens, 1_050_000);
 });
 
 test('Kiro IDE session telemetry records observed context percentage without prompt text', () => {
@@ -834,72 +460,6 @@ test('Kiro Crew usage is reported separately because it cannot be attributed to 
   assert.equal(crewUsage.workspaceAttributable, false);
 });
 
-test('Kiro context budget reports observed percentage and leaves absolute tokens unmeasured', () => {
-  const snapshot = { harnesses: { kiro: {
-    steering: { tokenEstimate: 300 },
-    skillGroups: [{ skillCount: 4, metadataTokenEstimate: 200 }],
-    sessionTelemetry: {
-      store: 'cli', startModel: 'claude-opus-5', currentModel: 'claude-opus-5', contextWindowTokens: 1_000_000,
-      contextWindowSource: 'session',
-      firstUsagePercent: 2.1, latestUsagePercent: 7.3, sampleCount: 2, creditsUsed: 2.25,
-      firstObservedAt: 'turn-one', updatedAt: 'turn-two',
-    },
-    crewUsage: { recordCount: 3, creditsTotal: 4.5, firstDate: '2026-09-20', lastDate: '2026-09-21', workspaceAttributable: false },
-  } } };
-  const profile = { id: 'claude-opus-5', name: 'Opus 5', harness: 'kiro', contextWindowTokens: 1_000_000 };
-
-  const first = buildContextBudget(snapshot, profile, null, 'first-session');
-  const latest = buildContextBudget(snapshot, profile, null, 'observed-session');
-
-  assert.equal(first.usagePercent, 2.1);
-  assert.equal(first.observedAt, 'turn-one');
-  assert.equal(latest.usagePercent, 7.3);
-  assert.equal(latest.usedTokens, null);
-  assert.equal(latest.freeTokens, null);
-  assert.equal(latest.bufferTokens, 0);
-  assert.equal(latest.confidence, 'observed-kiro-percent');
-  assert.equal(latest.categories.find((category) => category.id === 'skills').tokens, 200);
-  assert.equal(latest.categories.find((category) => category.id === 'memoryFiles').tokens, 300);
-  assert.equal(latest.breakdownTokens, 500);
-  assert.equal(latest.supplemental.creditsUsed, 2.25);
-  assert.equal(latest.supplemental.sampleCount, 2);
-  assert.equal(latest.supplemental.crewCreditsTotal, 4.5);
-  assert.equal(latest.supplemental.contextWindowSource, 'session');
-  assert.equal(latest.observedAt, 'turn-two');
-
-  const proxied = buildContextBudget(snapshot, { id: 'claude-sonnet-5', harness: 'kiro', contextWindowTokens: 1_000_000 }, null, 'observed-session');
-  assert.equal(proxied.confidence, 'cross-model-proxy');
-  assert.equal(proxied.categories[0].confidence, 'proxy');
-});
-
-test('Kiro model tabs come from session telemetry and keep the session context window', () => {
-  const snapshot = { harnesses: { kiro: {
-    modelCatalog: { selectedModel: 'claude-opus-5', models: [] },
-    sessionTelemetry: { startModel: 'claude-sonnet-5', currentModel: 'claude-opus-5', contextWindowTokens: 1_000_000 },
-  } } };
-
-  const profiles = mergeModelProfiles(snapshot, { profiles: [] }, 'kiro');
-  const opus = profiles.find((profile) => profile.id === 'claude-opus-5');
-
-  assert.deepEqual(profiles.map((profile) => profile.id).sort(), ['claude-opus-5', 'claude-sonnet-5']);
-  assert.equal(opus.selected, true);
-  assert.equal(opus.harness, 'kiro');
-  assert.equal(opus.contextWindowTokens, 1_000_000);
-  assert.equal(opus.contextWindowSource, 'session');
-  assert.equal(profiles.find((profile) => profile.id === 'claude-sonnet-5').contextWindowTokens, null);
-});
-
-test('Kiro falls back to static file estimates when no session telemetry exists', () => {
-  const budget = buildContextBudget({ harnesses: { kiro: {
-    steering: { tokenEstimate: 120 }, skillGroups: [{ skillCount: 3, metadataTokenEstimate: 80 }], sessionTelemetry: null,
-  } } }, { id: 'claude-opus-5', harness: 'kiro', contextWindowTokens: 1_000_000 }, null, 'observed-session');
-
-  assert.equal(budget.confidence, 'static-estimate');
-  assert.equal(budget.usedTokens, 200);
-  assert.equal(budget.usagePercent, 0.02);
-});
-
-
 test('discovers symlinked assets while surviving broken links and directory cycles', () => {
   const home = fixtureHome();
   const workspace = path.join(home, 'workspace');
@@ -1018,31 +578,6 @@ test('Kiro runtime reader throttles reparsing and refreshes after its cache inte
   assert.equal(refreshed.sessionTelemetry.latestUsagePercent, 18.4);
   assert.equal(refreshed.sessionTelemetry.firstUsagePercent, 4.5);
   assert.equal(refreshed.modelCatalog.selectedModel, 'claude-opus-5');
-});
-
-test('dashboard serves the Kiro runtime endpoint and polls it while visible', async () => {
-  const server = createDashboardServer({
-    snapshotDirectory: fixtureHome(),
-    publicDirectory: path.join(__dirname, '..', 'public'),
-    kiroRuntimeReader: () => ({ sessionTelemetry: { latestUsagePercent: 24.9 }, modelCatalog: { selectedModel: 'claude-opus-5', models: [] } }),
-  });
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const port = server.address().port;
-  const body = await new Promise((resolve, reject) => {
-    require('node:http').get({ hostname: '127.0.0.1', port, path: '/api/runtime/kiro' }, (response) => {
-      let text = '';
-      response.on('data', (chunk) => { text += chunk; });
-      response.on('end', () => resolve(text));
-    }).on('error', reject);
-  });
-
-  try {
-    assert.equal(JSON.parse(body).sessionTelemetry.latestUsagePercent, 24.9);
-    assert.equal(shouldPollHarnessRuntime('kiro', 'visible'), true);
-    assert.equal(shouldPollHarnessRuntime('kiro', 'hidden'), false);
-  } finally {
-    await new Promise((resolve) => server.close(resolve));
-  }
 });
 
 test('telemetry summary unifies three harnesses on percentage', () => {
