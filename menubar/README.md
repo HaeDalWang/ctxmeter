@@ -15,6 +15,14 @@ make install   # copy to /Applications
 
 SwiftPM cannot emit a `.app`, so the `Makefile` assembles the bundle: it copies the executable, rewrites `Info.plist`, and stages `src/`, `config/`, and `package.json` from the repository root into `Contents/Resources/ctxmeter`.
 
+To switch the running app on and off from a terminal:
+
+```bash
+scripts/ctxmeter-bar.sh on | off | toggle | restart | status | install
+```
+
+`on` prefers `/Applications/CtxmeterBar.app` and falls back to the local build. `install` rebuilds, replaces the copy in `/Applications`, and restarts the app if it was running.
+
 ## How it gets data
 
 The app runs the bundled `ctxmeter telemetry` command and decodes its JSON. The scanner stays in Node because it is already covered by the JavaScript test suite; duplicating it in Swift would create two sources of truth. Only decoding, formatting, and the node lookup live here, and those are what the Swift tests cover.
