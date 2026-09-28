@@ -5,12 +5,12 @@
 <p align="center">
   <a href="LICENSE"><img alt="MIT" src="https://img.shields.io/badge/license-MIT-6e5aff?style=flat-square"></a>
   <img alt="Node 20+" src="https://img.shields.io/badge/node-20%2B-1f9d55?style=flat-square">
-  <img alt="no network" src="https://img.shields.io/badge/network-none-0a0a0c?style=flat-square">
+  <img alt="no telemetry" src="https://img.shields.io/badge/telemetry-none-0a0a0c?style=flat-square">
   <img alt="Claude Code, Codex, Kiro" src="https://img.shields.io/badge/agents-Claude%20Code%20%7C%20Codex%20%7C%20Kiro-2ec7b6?style=flat-square">
 </p>
 
 ```bash
-npx ctxmeter
+npx github:HaeDalWang/ctxmeter
 ```
 
 <p align="center"><img src="docs/demo.gif" alt="ctxmeter audit output showing 33,458 tokens of startup cost across Kiro, Claude Code, and Codex" width="760"></p>
@@ -19,26 +19,39 @@ Skills, rule files, steering docs, hooks, and MCP servers all load at session st
 
 ## Quickstart
 
+ctxmeter is not on npm; `npx github:HaeDalWang/ctxmeter` runs it straight from this repository (Node 20+). Below, `ctxmeter` stands for that, or for `node src/cli.js` inside a clone.
+
 ```bash
 # 1. What does my setup cost right now?
-npx ctxmeter
+npx github:HaeDalWang/ctxmeter
 
 # 2. Include MCP tool schemas, the biggest and least visible cost.
 #    This one starts your servers, so it is opt-in. See what it would run first:
-npx ctxmeter mcp-scan --dry-run
-npx ctxmeter mcp-scan --i-understand-this-launches-servers
+ctxmeter mcp-scan --dry-run
+ctxmeter mcp-scan --i-understand-this-launches-servers
 
 # 3. Switch the expensive ones off. Dry run first; --disable backs up and prints the undo.
-npx ctxmeter fix
-npx ctxmeter fix --disable codex/code-review-graph   # --enable turns it back on
-
-# 4. Watch context per turn, and switch items from the macOS menu bar.
-git clone https://github.com/HaeDalWang/ctxmeter && cd ctxmeter/menubar
-make install     # then launch CtxmeterBar from /Applications
+ctxmeter fix
+ctxmeter fix --disable codex/code-review-graph   # --enable turns it back on
 
 # Everything else
-npx ctxmeter --help
+ctxmeter --help
 ```
+
+### Menu bar app (macOS 14+)
+
+```bash
+xcode-select --install     # Swift command line tools; skip if already installed
+brew install node          # skip if node 20+ is already installed
+git clone https://github.com/HaeDalWang/ctxmeter.git && cd ctxmeter
+./scripts/ctxmeter-bar.sh install
+```
+
+1. Open `/Applications/CtxmeterBar.app` from **Finder**, not from a terminal (see below).
+2. System Settings → Menu Bar → turn **CtxmeterBar** on.
+3. Upgrade later with `git pull && ./scripts/ctxmeter-bar.sh install`. The popover shows when a newer release exists.
+
+**Running but no icon (macOS 26)?** Control Center can keep the app disallowed even with the toggle on, or file it under the disabled terminal that launched it. `./scripts/menubar-allowlist.py` shows the state and `--repair` fixes it, with a backup and a rollback command. It needs Full Disk Access for your terminal. [Why](develop/execution/08-menubar-management.md).
 
 Measure, then act. Two surfaces over the same numbers: the CLI for a one-shot audit and fix, and a menu bar app that charts context per turn and switches items on and off.
 
@@ -123,20 +136,25 @@ TOML is edited line by line and never reserialized, so comments and the other 78
 
 One icon and one number in the menu bar: how full the context window of the agent you are watching is, refreshed every 30 seconds.
 
+<p align="center">
+  <img src="docs/img/menubar-overview.png" alt="Menu bar popover, Overview tab: context share and per-turn chart for Claude Code, Codex, and Kiro" width="300">
+  <img src="docs/img/menubar-session.png" alt="Menu bar popover, Claude tab: current session peak 274k with one compaction marked, and the largest sessions of the last 7 days" width="300">
+</p>
+<p align="center"><img src="docs/img/menubar-details.png" alt="Details window: context window composition for Claude Code and every startup item ranked by cost, with on/off switches" width="760"></p>
+
 - **Popover:** context per turn for the current session of each agent, with compaction marked; hover a bar for that turn's value. Each agent's tab adds the largest sessions of the last 7 days.
 - **Details:** what the window is made of — instructions, skills, MCP schemas, messages, autocompact reserve, free — and every item that loads at startup, ranked by cost, with a switch on each one that has a native off flag. Every switch asks for confirmation, keeps a backup, and tells you which agent to restart.
 
 ```bash
-cd menubar
-make install     # /Applications/CtxmeterBar.app
-scripts/ctxmeter-bar.sh on | off | toggle | status   # from the repo root
+./scripts/ctxmeter-bar.sh install                    # build and copy to /Applications
+./scripts/ctxmeter-bar.sh on | off | toggle | status
 ```
 
 Swift and SwiftPM only; full Xcode is not required. Agent icons are read from the vendor apps installed on your Mac, so no trademarked artwork ships in this repo. Telemetry refresh reads session usage only; session history refreshes at most once a minute, and the Details scan runs only when the window opens or after a switch. [Details](menubar/README.md).
 
 ## What it never does
 
-No prompt text, rule text, skill bodies, or credentials are copied. No network connection except MCP servers you explicitly opt into. No background watcher, no database, no telemetry. Prompt-history files are never opened. Snapshots hold paths, counts, and byte estimates only — the test suite asserts it.
+No prompt text, rule text, skill bodies, or credentials are copied. The CLI makes no network connection except to MCP servers you explicitly opt into. The menu bar app makes one: a daily read of the latest GitHub release tag, to tell you an upgrade exists (Settings → Updates turns it off). No background watcher, no database, no telemetry. Prompt-history files are never opened. Snapshots hold paths, counts, and byte estimates only — the test suite asserts it.
 
 Two commands step outside read-only, and both require an explicit flag:
 
@@ -160,15 +178,15 @@ Everything else only reads, and the default invocation of both of those only rea
 
 | Command | What it does |
 |---|---|
-| `npx ctxmeter` | audit; ranked startup cost per agent |
-| `npx ctxmeter mcp-scan` | measure MCP tool schemas (starts your servers) |
-| `npx ctxmeter fix` | list switches that would free tokens; `--disable` / `--enable` to flip one; `--json` for all |
-| `npx ctxmeter scan` | full inventory snapshot as JSON |
-| `npx ctxmeter telemetry` | current session usage as JSON, ~0.2s |
-| `npx ctxmeter history` | context per turn and the largest recent sessions, as JSON |
-| `npx ctxmeter details` | what each agent's context is made of, with every switch, as JSON |
-| `npx ctxmeter --help` | every command and flag |
-| `cd menubar && make install` | macOS menu bar app |
+| `ctxmeter` | audit; ranked startup cost per agent |
+| `ctxmeter mcp-scan` | measure MCP tool schemas (starts your servers) |
+| `ctxmeter fix` | list switches that would free tokens; `--disable` / `--enable` to flip one; `--json` for all |
+| `ctxmeter scan` | full inventory snapshot as JSON |
+| `ctxmeter telemetry` | current session usage as JSON, ~0.2s |
+| `ctxmeter history` | context per turn and the largest recent sessions, as JSON |
+| `ctxmeter details` | what each agent's context is made of, with every switch, as JSON |
+| `ctxmeter --help` | every command and flag |
+| `./scripts/ctxmeter-bar.sh install` | macOS menu bar app |
 
 `--home` and `--workspace` override paths on any command.
 

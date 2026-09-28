@@ -16,11 +16,11 @@ ctxmeter answers three questions without copying prompt or secret contents:
 
 ```bash
 npm test
-npx ctxmeter                 # audit
-npx ctxmeter scan            # JSON snapshot
-npx ctxmeter telemetry       # session usage only
-npx ctxmeter history         # context per turn, largest recent sessions
-npx ctxmeter details         # composition and switches per agent
+node src/cli.js                 # audit
+node src/cli.js scan            # JSON snapshot
+node src/cli.js telemetry       # session usage only
+node src/cli.js history         # context per turn, largest recent sessions
+node src/cli.js details         # composition and switches per agent
 ```
 
 The default scan writes a timestamped JSON snapshot under `.ctxmeter/snapshots/`.
@@ -28,7 +28,7 @@ The default scan writes a timestamped JSON snapshot under `.ctxmeter/snapshots/`
 To choose the target paths explicitly:
 
 ```bash
-npx ctxmeter scan --home /path/to/home --workspace /path/to/project --output ./scan.json
+node src/cli.js scan --home /path/to/home --workspace /path/to/project --output ./scan.json
 ```
 
 ## Disable flags and why they matter
@@ -106,9 +106,7 @@ Codex's budget denominator is the active session's reported context window when 
 
 ## Menu bar app
 
-The web dashboard was removed on 2026-09-28; the menu bar Details window replaced it (`develop/decisions/06`). The app runs the bundled CLI (`telemetry`, `history`, `details`, `fix --json`) and uses no background watcher, database, or network request.
-
-Live mode is demand-driven rather than a background watcher. Hiding the browser tab stops polling; returning to a visible Claude or Codex panel refreshes immediately. The `LIVE` badge shows the timestamp of the most recent local token record.
+The web dashboard was removed on 2026-09-28; the menu bar Details window replaced it (`develop/decisions/06`). The app runs the bundled CLI (`telemetry`, `history`, `details`, `fix --json`) and uses no background watcher or database. Its one network request is the release check: at launch and once a day it reads `api.github.com/repos/HaeDalWang/ctxmeter/releases/latest`, compares the tag with its own version, and shows a notice with a link and the upgrade command. Nothing is sent or installed; Settings → Updates turns it off. A failed check is silent and retried an hour later.
 
 Snapshots contain paths, counts, IDs, byte estimates, and numeric session usage only. They do not persist settings values, prompt text, rule text, skill text, or credentials.
 

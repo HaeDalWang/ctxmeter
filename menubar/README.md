@@ -80,6 +80,8 @@ All three currently resolve: Claude 18.8% of 1m, Codex 27.0% of 258.4k, Kiro 37.
 
 One workspace at a time, chosen in Settings and defaulting to the repository this app was built from. Details replaced the web dashboard, which was removed (`develop/decisions/06`).
 
+At launch and once a day the app reads the latest GitHub release and, if it is newer than the installed version, shows a notice with the upgrade command and a link. Nothing is sent or installed; Settings → Updates turns it off (`develop/decisions/07`).
+
 ## Not verified
 
 Popover and Details were seen live on 2026-09-28. The confirmation dialog and a real switch round trip through the app were not exercised by hand.
