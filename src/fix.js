@@ -35,7 +35,9 @@ function mcpProposal(home, server) {
   };
 
   if (server.harness === 'codex') {
-    return { ...base, file: path.join(home, '.codex', 'config.toml'), format: 'toml', section: `mcp_servers.${server.name}` };
+    // TOML only allows [A-Za-z0-9_-] in a bare key; anything else is quoted.
+    const key = /^[A-Za-z0-9_-]+$/.test(server.name) ? server.name : `"${server.name}"`;
+    return { ...base, file: path.join(home, '.codex', 'config.toml'), format: 'toml', section: `mcp_servers.${key}` };
   }
   const location = JSON_LOCATIONS[server.harness];
   if (!location) return null;

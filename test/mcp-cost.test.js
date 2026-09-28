@@ -338,3 +338,72 @@ test('all three harnesses contribute to one server list', () => {
   // Assert
   assert.deepEqual(harnesses.sort(), ['claude', 'codex', 'kiro']);
 });
+
+
+test('a trailing comment does not turn enabled = false back on', () => {
+  // Arrange
+  const home = fixtureHome();
+  write(home, '.codex/config.toml', [
+    '[mcp_servers.switched_off]',
+    'command = "/Applications/SomeApp.app/Contents/MacOS/SomeApp"',
+    'enabled = false # parked until I need it',
+    '',
+    '[mcp_servers.commented]',
+    'command = "node" # the runtime',
+    'url_unused = 1',
+    '',
+  ].join('\n'));
+
+  // Act
+  const entries = mcpServerEntries(home);
+
+  // Assert
+  assert.deepEqual(entries.map((entry) => entry.name), ['commented']);
+  assert.equal(entries[0].command, 'node');
+});
+
+test('Streamable HTTP carries the session id and protocol version after initialize', async () => {
+  // Arrange: a stateful server that rejects any follow-up without its session id.
+  const http = require('node:http');
+  const seen = [];
+  const server = http.createServer((request, response) => {
+    let body = '';
+    request.on('data', (chunk) => { body += chunk; });
+    request.on('end', () => {
+      const row = JSON.parse(body);
+      seen.push({ method: row.method, session: request.headers['mcp-session-id'], version: request.headers['mcp-protocol-version'] });
+      if (row.method === 'initialize') {
+        response.writeHead(200, { 'content-type': 'application/json', 'mcp-session-id': 'abc123' });
+        response.end(JSON.stringify({ jsonrpc: '2.0', id: row.id, result: { protocolVersion: '2025-06-18', capabilities: {} } }));
+        return;
+      }
+      if (request.headers['mcp-session-id'] !== 'abc123') {
+        response.writeHead(400);
+        response.end('missing session');
+        return;
+      }
+      if (row.method === 'tools/list') {
+        response.writeHead(200, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({ jsonrpc: '2.0', id: row.id, result: { tools: [{ name: 't', inputSchema: { type: 'object' } }] } }));
+        return;
+      }
+      response.writeHead(202);
+      response.end();
+    });
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const url = `http://127.0.0.1:${server.address().port}/mcp`;
+
+  try {
+    // Act
+    const result = await measureMcpCost([{ harness: 'claude', name: 'remote', transport: 'http', url, args: [], env: {}, envKeys: [] }], { allowRemote: true, timeoutMs: 2_000 });
+
+    // Assert
+    assert.equal(result.servers[0].status, 'measured');
+    assert.equal(result.servers[0].toolCount, 1);
+    const followUps = seen.filter((row) => row.method !== 'initialize');
+    assert.ok(followUps.every((row) => row.session === 'abc123' && row.version === '2025-06-18'));
+  } finally {
+    server.close();
+  }
+});

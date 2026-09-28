@@ -37,34 +37,34 @@ function enabledMcpServerNames(config) {
     .map(([name]) => name);
 }
 
-function walkFiles(directory, predicate, files = [], visited = new Set(), tracking = false) {
-  if (!exists(directory)) return files;
+function walkFiles(directory, predicate, files = [], visited = new Set()) {
+  let stat;
+  try { stat = fs.statSync(directory); } catch { return files; }
+  if (!stat.isDirectory()) return files;
 
-  // Cycle and duplicate tracking costs a realpath per directory, so it starts
-  // only once a symlink has been followed. Neither can occur without one.
-  if (tracking) {
-    let realDirectory;
-    try { realDirectory = fs.realpathSync(directory); } catch { return files; }
-    if (visited.has(realDirectory)) return files;
-    visited.add(realDirectory);
-  }
+  // Keyed by inode rather than path, so a symlink to a directory that was already
+  // walked by its plain path, or a cycle, is visited once. The stat is the one the
+  // existence check needed anyway.
+  const key = `${stat.dev}:${stat.ino}`;
+  if (visited.has(key)) return files;
+  visited.add(key);
 
-  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+  // One unreadable directory must not abort a scan of everything else.
+  let entries;
+  try { entries = fs.readdirSync(directory, { withFileTypes: true }); } catch { return files; }
+
+  for (const entry of entries) {
     if (entry.name === 'node_modules') continue;
     const item = path.join(directory, entry.name);
     let isDirectory = entry.isDirectory();
     let isFile = entry.isFile();
     if (entry.isSymbolicLink()) {
-      let stat;
-      try { stat = fs.statSync(item); } catch { continue; }
-      isDirectory = stat.isDirectory();
-      isFile = stat.isFile();
-      if (isDirectory) {
-        walkFiles(item, predicate, files, visited, true);
-        continue;
-      }
+      let linked;
+      try { linked = fs.statSync(item); } catch { continue; }
+      isDirectory = linked.isDirectory();
+      isFile = linked.isFile();
     }
-    if (isDirectory) walkFiles(item, predicate, files, visited, tracking);
+    if (isDirectory) walkFiles(item, predicate, files, visited);
     if (isFile && predicate(item)) files.push(item);
   }
   return files;
@@ -87,12 +87,18 @@ function skillMetadataBytes(file) {
   return frontmatter ? Buffer.byteLength(frontmatter) : 0;
 }
 
+/// The leading `---` block, tolerating a BOM and CRLF line endings. Searching
+/// from the opening newline also catches an empty block.
+function frontmatterOf(content) {
+  const opening = content.match(/^\uFEFF?---\r?\n/);
+  if (!opening) return '';
+  const end = content.indexOf('\n---', opening[0].length - 1);
+  return end === -1 ? '' : content.slice(0, end + 5);
+}
+
 function skillFrontmatter(file) {
   if (!fileExists(file)) return 0;
-  const content = fs.readFileSync(file, 'utf8');
-  if (!content.startsWith('---\n')) return '';
-  const end = content.indexOf('\n---', 4);
-  return end === -1 ? '' : content.slice(0, end + 5);
+  return frontmatterOf(fs.readFileSync(file, 'utf8'));
 }
 
 function declaredSkillName(frontmatter) {
@@ -102,8 +108,7 @@ function declaredSkillName(frontmatter) {
 
 function skillAsset(file, groupDirectory) {
   const content = fs.readFileSync(file, 'utf8');
-  const end = content.startsWith('---\n') ? content.indexOf('\n---', 4) : -1;
-  const frontmatter = end === -1 ? '' : content.slice(0, end + 5);
+  const frontmatter = frontmatterOf(content);
   const metadataBytes = frontmatter ? Buffer.byteLength(frontmatter) : 0;
   const stat = fs.statSync(file);
   return {
@@ -170,6 +175,13 @@ function pluginCacheDirectory(claudeDirectory, pluginId) {
   const marketplace = pluginId.slice(separator + 1);
   const root = path.join(claudeDirectory, 'plugins', 'cache', marketplace, name);
   if (!exists(root)) return null;
+  // Claude records which version it actually installed. Directory names are
+  // versions or commit hashes, so sorting them only guesses.
+  const installs = readJson(path.join(claudeDirectory, 'plugins', 'installed_plugins.json')).plugins?.[pluginId];
+  const recorded = (Array.isArray(installs) ? installs : [])
+    .map((install) => install?.installPath)
+    .find((installPath) => typeof installPath === 'string' && path.dirname(path.resolve(installPath)) === root && exists(installPath));
+  if (recorded) return recorded;
   const versions = fs.readdirSync(root, { withFileTypes: true })
     .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink())
     .map((entry) => entry.name)
@@ -735,7 +747,8 @@ function kiroSessionTelemetry(root, workspace) {
 }
 
 function kiroHookCount(root, workspace) {
-  const directories = [path.join(root, 'hooks'), path.join(workspace, '.kiro', 'hooks')];
+  // When the workspace is the home directory both paths are the same folder.
+  const directories = [...new Set([path.join(root, 'hooks'), path.join(workspace, '.kiro', 'hooks')].map((directory) => path.resolve(directory)))];
   return directories.reduce((total, directory) => total + walkFiles(directory, (file) => file.endsWith('.json'))
     .reduce((sum, file) => {
       const hooks = readJson(file, {}).hooks;

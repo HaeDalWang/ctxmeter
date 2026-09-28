@@ -255,6 +255,28 @@ test('Claude context uses JSONL total with file estimates inside a measured rema
   assert.equal(current.supplemental.cachedInputTokens, 150);
 });
 
+test('dashboard refuses a foreign Host header so DNS rebinding cannot read local data', async () => {
+  // Arrange
+  const server = createDashboardServer({ snapshotDirectory: fixtureHome(), publicDirectory: path.join(__dirname, '..', 'public') });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = server.address().port;
+  const request = (host) => new Promise((resolve, reject) => {
+    require('node:http').get({ hostname: '127.0.0.1', port, path: '/api/snapshots', headers: { host } }, (response) => {
+      response.resume();
+      response.on('end', () => resolve(response.statusCode));
+    }).on('error', reject);
+  });
+
+  try {
+    // Act + Assert
+    assert.equal(await request('evil.example:4318'), 403);
+    assert.equal(await request(`127.0.0.1:${port}`), 200);
+    assert.equal(await request(`localhost:${port}`), 200);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test('dashboard lists snapshots, serves assets, and rejects traversal paths', async () => {
   const home = fixtureHome();
   const snapshots = path.join(home, 'snapshots');
@@ -288,6 +310,9 @@ test('dashboard lists snapshots, serves assets, and rejects traversal paths', as
     assert.equal((await request('/api/snapshots/%2e%2e%2fsecret.json')).status, 400);
     assert.match((await request('/')).body, /ctxmeter/);
     assert.equal((await request('/api/snapshots/missing.json')).status, 404);
+    // A malformed escape must be a 400, not an exception that kills the server.
+    assert.equal((await request('/api/snapshots/%E0.json')).status, 400);
+    assert.equal((await request('/api/snapshots')).status, 200, 'server survived the malformed request');
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
@@ -1175,4 +1200,78 @@ test('audit stays safe on an empty environment', () => {
   assert.deepEqual(report.harnesses, []);
   assert.equal(report.totalMeasuredStartupTokens, 0);
   assert.match(formatAudit(report), /No local agent configuration found/);
+});
+
+
+test('one unreadable directory under ~/.claude does not abort the whole scan', (t) => {
+  // Arrange
+  const home = fixtureHome();
+  write(home, '.claude/skills/ok/SKILL.md', '---\nname: ok\n---\nbody');
+  const locked = path.join(home, '.claude', 'locked');
+  fs.mkdirSync(locked);
+  fs.chmodSync(locked, 0);
+  t.after(() => fs.chmodSync(locked, 0o700));
+
+  // Act
+  const snapshot = scanEnvironment({ home, workspace: fixtureHome() });
+
+  // Assert
+  assert.equal(snapshot.harnesses.claude.skillGroups[0].skillCount, 1);
+});
+
+test('a SKILL.md saved with CRLF line endings still has its frontmatter counted', () => {
+  // Arrange
+  const home = fixtureHome();
+  write(home, '.claude/skills/win/SKILL.md', '---\r\nname: win\r\ndescription: a windows skill\r\n---\r\nbody');
+
+  // Act
+  const [asset] = scanEnvironment({ home, workspace: fixtureHome() }).harnesses.claude.skillGroups[0].assets;
+
+  // Assert
+  assert.equal(asset.declaredName, 'win');
+  assert.ok(asset.metadataBytes > 0);
+});
+
+test('a symlink back to an already-walked skill is not counted twice', () => {
+  // Arrange: `real` sorts before `zalias`, so the plain path is walked first.
+  const home = fixtureHome();
+  write(home, '.claude/skills/real/SKILL.md', '---\nname: real\n---\nbody');
+  fs.symlinkSync(path.join(home, '.claude', 'skills', 'real'), path.join(home, '.claude', 'skills', 'zalias'));
+
+  // Act
+  const group = scanEnvironment({ home, workspace: fixtureHome() }).harnesses.claude.skillGroups[0];
+
+  // Assert
+  assert.equal(group.skillCount, 1);
+});
+
+test('Kiro hooks are counted once when the workspace is the home directory', () => {
+  // Arrange
+  const home = fixtureHome();
+  write(home, '.kiro/hooks/h.json', JSON.stringify({ hooks: [{ name: 'x' }] }));
+
+  // Act
+  const snapshot = scanEnvironment({ home, workspace: home });
+
+  // Assert
+  assert.equal(snapshot.harnesses.kiro.hookCount, 1);
+});
+
+test('a Claude plugin is read from its recorded install path, not the lexically last version', () => {
+  // Arrange: lexical order puts 1.9.0 after 1.10.0.
+  const home = fixtureHome();
+  const cache = path.join(home, '.claude', 'plugins', 'cache', 'mk', 'pl');
+  write(home, '.claude/settings.json', JSON.stringify({ enabledPlugins: { 'pl@mk': true } }));
+  write(home, '.claude/plugins/cache/mk/pl/1.9.0/skills/old/SKILL.md', '---\nname: old\n---\n');
+  write(home, '.claude/plugins/cache/mk/pl/1.10.0/skills/new/SKILL.md', '---\nname: new\n---\n');
+  write(home, '.claude/plugins/installed_plugins.json', JSON.stringify({
+    version: 2,
+    plugins: { 'pl@mk': [{ scope: 'user', installPath: path.join(cache, '1.10.0'), version: '1.10.0' }] },
+  }));
+
+  // Act
+  const group = scanEnvironment({ home, workspace: fixtureHome() }).harnesses.claude.skillGroups.find((entry) => entry.id === 'pl@mk');
+
+  // Assert
+  assert.deepEqual(group.assets.map((asset) => asset.declaredName), ['new']);
 });

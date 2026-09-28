@@ -236,3 +236,20 @@ test('an empty setup says so instead of printing an empty list', () => {
   assert.match(text, /nothing/i);
   assert.match(text, /mcp-scan/, 'it should say how to get measurements');
 });
+
+
+test('a Codex server whose name needs quoting is found under its quoted header', () => {
+  // Arrange: TOML requires quotes around a key containing a dot.
+  const home = fixtureHome();
+  write(home, '.codex/config.toml', '[mcp_servers."docs.search"]\ncommand = "a"\n');
+  const mcpCost = mcpCostFor(home, [{ harness: 'codex', name: 'docs.search', status: MEASURED_STATUS, toolCount: 1, estimatedTokens: 100 }]);
+  const [proposal] = fixProposals({ home, snapshot: snapshotFor(home), mcpCost });
+
+  // Act
+  const plan = planProposal(proposal);
+
+  // Assert
+  assert.equal(proposal.section, 'mcp_servers."docs.search"');
+  assert.equal(plan.changed, true);
+  assert.match(plan.after, /\[mcp_servers\."docs\.search"\]\nenabled = false\n/);
+});

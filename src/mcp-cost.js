@@ -69,6 +69,15 @@ function kiroEntries(home) {
   return jsonEntries('kiro', path.join(home, '.kiro', 'settings', 'mcp.json'));
 }
 
+/// The value part of `key = value`, without quotes or a trailing `# comment`.
+/// Without this, `enabled = false # note` reads as on and the server is started.
+function tomlScalar(raw) {
+  const quoted = raw.match(/^"((?:[^"\\]|\\.)*)"/) || raw.match(/^'([^']*)'/);
+  if (quoted) return quoted[1];
+  if (raw.startsWith('[')) return raw.slice(0, raw.lastIndexOf(']') + 1);
+  return raw.replace(/\s*#.*$/, '');
+}
+
 /// Minimal TOML reading for `[mcp_servers.<name>]` blocks. The scanner already
 /// takes this approach; a dependency is not worth it for three key shapes.
 function codexEntries(home) {
@@ -97,22 +106,23 @@ function codexEntries(home) {
     const entry = entries.get(current);
     const pair = line.match(/^\s*([A-Za-z0-9_-]+)\s*=\s*(.+?)\s*$/);
     if (!pair) continue;
+    const value = tomlScalar(pair[2]);
     if (inEnv) {
       entry.envKeys.push(pair[1]);
-      entry.env[pair[1]] = pair[2].replace(/^"|"$/g, '');
+      entry.env[pair[1]] = value;
       continue;
     }
-    if (pair[1] === 'command') entry.command = pair[2].replace(/^"|"$/g, '');
+    if (pair[1] === 'command') entry.command = value;
     if (pair[1] === 'url') {
-      entry.url = pair[2].replace(/^"|"$/g, '');
+      entry.url = value;
       entry.transport = 'http';
     }
     if (pair[1] === 'args') {
-      entry.args = [...pair[2].matchAll(/"([^"]*)"/g)].map((match) => match[1]);
+      entry.args = [...value.matchAll(/"([^"]*)"/g)].map((match) => match[1]);
     }
     // Codex switches a server off in place. Honouring it matters twice over: a
     // disabled server costs nothing, and starting it anyway can launch a GUI app.
-    if (pair[1] === 'enabled') entry.enabled = pair[2].trim() !== 'false';
+    if (pair[1] === 'enabled') entry.enabled = value.trim() !== 'false';
   }
   return [...entries.values()].filter((entry) => entry.enabled !== false);
 }
@@ -218,15 +228,23 @@ function measureStdioServer(entry, timeoutMs) {
 async function measureHttpServer(entry, timeoutMs) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const headers = { 'content-type': 'application/json', accept: 'application/json, text/event-stream' };
   const post = (body) => fetch(entry.url, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+    headers,
     body,
     signal: controller.signal,
   });
   try {
     const [initialize, initialized, listTools] = frames();
-    await post(initialize);
+    const initializeResponse = await post(initialize);
+    // The spec requires both on every request after initialize. A stateful
+    // server rejects follow-ups without its session id, so without this every
+    // such server reads as "failed".
+    const sessionId = initializeResponse.headers.get('mcp-session-id');
+    if (sessionId) headers['mcp-session-id'] = sessionId;
+    headers['mcp-protocol-version'] = PROTOCOL_VERSION;
+    await initializeResponse.body?.cancel();
     await post(initialized);
     const response = await post(listTools);
     const text = await response.text();

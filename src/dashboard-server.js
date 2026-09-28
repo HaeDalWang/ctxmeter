@@ -20,6 +20,24 @@ function safeSnapshotName(value) {
   return value && !value.includes('/') && !value.includes('\\') && value.endsWith('.json') ? value : null;
 }
 
+function decodeOrNull(value) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return null;
+  }
+}
+
+// Binding to 127.0.0.1 does not stop a web page from reaching this server through
+// DNS rebinding; the browser then sends that page's hostname. Only loopback names
+// are ever legitimate here.
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
+
+function isLoopbackHost(hostHeader) {
+  if (!hostHeader) return false;
+  return LOOPBACK_HOSTS.has(hostHeader.replace(/:\d+$/, '').toLowerCase());
+}
+
 function formatListenError(error, port) {
   if (error.code === 'EADDRINUSE') {
     return `ctxmeter dashboard is already running on http://127.0.0.1:${port}. Stop that process or run CTXMETER_PORT=${port + 1} npm run dashboard.`;
@@ -30,6 +48,7 @@ function formatListenError(error, port) {
 function createDashboardServer({ snapshotDirectory, publicDirectory, contextProfilesFile, claudeRuntimeReader, codexRuntimeReader, kiroRuntimeReader }) {
   const runtimeReaders = { claude: claudeRuntimeReader, codex: codexRuntimeReader, kiro: kiroRuntimeReader };
   return http.createServer((request, response) => {
+    if (!isLoopbackHost(request.headers.host)) return send(response, 403, 'Forbidden host');
     const pathname = new URL(request.url, 'http://127.0.0.1').pathname;
     if (pathname === '/api/snapshots') return send(response, 200, JSON.stringify({ snapshots: listSnapshots(snapshotDirectory) }), MIME['.json']);
     if (pathname === '/api/context-profiles') {
@@ -48,7 +67,7 @@ function createDashboardServer({ snapshotDirectory, publicDirectory, contextProf
       }
     }
     if (pathname.startsWith('/api/snapshots/')) {
-      const name = safeSnapshotName(decodeURIComponent(pathname.slice('/api/snapshots/'.length)));
+      const name = safeSnapshotName(decodeOrNull(pathname.slice('/api/snapshots/'.length)));
       if (!name) return send(response, 400, 'Invalid snapshot name');
       const file = path.join(snapshotDirectory, name);
       return fs.existsSync(file) ? send(response, 200, fs.readFileSync(file), MIME['.json']) : send(response, 404, 'Snapshot not found');
