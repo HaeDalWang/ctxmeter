@@ -83,37 +83,6 @@ test('an unknown option names the option it rejected', () => {
   assert.match(result.stderr, /Unknown option: --nope/);
 });
 
-test('usage documents the dashboard so installed users can find it', () => {
-  // Arrange & Act
-  const result = runCli(['--help']);
-
-  // Assert
-  assert.match(result.stdout, /dashboard/);
-});
-
-test('dashboard is reachable as a subcommand rather than only an npm script', async () => {
-  // Arrange & Act
-  const options = parseArgs(['dashboard', '--port', '0']);
-
-  // Assert
-  assert.equal(options.command, 'dashboard');
-  assert.equal(options.port, '0');
-});
-
-test('dashboard starts on an ephemeral port and reports its address', async () => {
-  // Arrange & Act
-  const result = await run(['dashboard', '--port', '0']);
-
-  // Assert
-  try {
-    assert.match(result.summary, /http:\/\/127\.0\.0\.1:\d+/);
-    assert.ok(result.server, 'dashboard run should hand back the server for shutdown');
-  } finally {
-    await new Promise((resolve) => result.server.close(resolve));
-  }
-});
-
-
 test('fix is a known command and parses its apply target', () => {
   // Arrange & Act
   const dry = parseArgs(['fix']);
@@ -162,4 +131,99 @@ test('usage documents fix and warns that it writes', () => {
   // Assert
   assert.match(result.stdout, /fix/);
   assert.match(result.stdout, /only command that writes|writes to your config/i);
+});
+
+
+test('history prints per-harness session history as JSON', () => {
+  // Arrange
+  const home = require('node:fs').mkdtempSync(path.join(require('node:os').tmpdir(), 'ctx-cli-history-'));
+
+  // Act
+  const result = runCli(['history', '--home', home, '--workspace', home]);
+
+  // Assert
+  assert.equal(result.status, 0, result.stderr);
+  const report = JSON.parse(result.stdout);
+  assert.equal(report.days, 7);
+  assert.deepEqual(Object.keys(report.harnesses).sort(), ['claude', 'codex', 'kiro']);
+  assert.equal(report.target.workspace, home);
+});
+
+
+function switchFixture() {
+  const fs = require('node:fs');
+  const home = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'ctx-cli-switch-'));
+  fs.mkdirSync(path.join(home, '.codex'));
+  const config = path.join(home, '.codex', 'config.toml');
+  fs.writeFileSync(config, '[mcp_servers.parked]\ncommand = "b"\nenabled = false\n');
+  return { home, config, fs };
+}
+
+test('fix --json lists every switch, including ones that are off', () => {
+  // Arrange
+  const { home } = switchFixture();
+
+  // Act
+  const result = runCli(['fix', '--json', '--home', home, '--workspace', home]);
+
+  // Assert
+  assert.equal(result.status, 0, result.stderr);
+  const [item] = JSON.parse(result.stdout).switches;
+  assert.equal(item.target, 'codex/parked');
+  assert.equal(item.enabled, false);
+});
+
+test('fix --enable turns a switch back on, backs up, and reports the undo as JSON', () => {
+  // Arrange
+  const { home, config, fs } = switchFixture();
+
+  // Act
+  const result = runCli(['fix', '--enable', 'codex/parked', '--json', '--home', home, '--workspace', home]);
+
+  // Assert
+  assert.equal(result.status, 0, result.stderr);
+  const report = JSON.parse(result.stdout);
+  assert.equal(report.enabled, true);
+  assert.match(fs.readFileSync(config, 'utf8'), /enabled = true/);
+  assert.ok(fs.existsSync(report.backup));
+  assert.match(report.rollback, /^cp /);
+});
+
+test('enabling a switch that is already on is refused', () => {
+  // Arrange
+  const { home } = switchFixture();
+  runCli(['fix', '--enable', 'codex/parked', '--home', home, '--workspace', home]);
+
+  // Act
+  const result = runCli(['fix', '--enable', 'codex/parked', '--home', home, '--workspace', home]);
+
+  // Assert
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /already switched on/);
+});
+
+test('fix refuses --enable and --disable together', () => {
+  // Arrange & Act
+  const result = runCli(['fix', '--enable', 'a/b', '--disable', 'a/b']);
+
+  // Assert
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /one of/);
+});
+
+test('details prints composition and switches per harness as JSON', () => {
+  // Arrange
+  const fs = require('node:fs');
+  const home = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'ctx-cli-details-'));
+  fs.mkdirSync(path.join(home, '.codex'));
+  fs.writeFileSync(path.join(home, '.codex', 'config.toml'), '[mcp_servers.x]\ncommand = "a"\n');
+
+  // Act
+  const result = runCli(['details', '--home', home, '--workspace', home]);
+
+  // Assert
+  assert.equal(result.status, 0, result.stderr);
+  const report = JSON.parse(result.stdout);
+  assert.deepEqual(Object.keys(report.harnesses).sort(), ['claude', 'codex', 'kiro']);
+  assert.equal(report.harnesses.codex.items.find((item) => item.id === 'mcp:x').switch.target, 'codex/x');
 });

@@ -194,4 +194,4 @@ function formatAudit(report) {
   return lines.join('\n');
 }
 
-module.exports = { auditReport, formatAudit };
+module.exports = { auditReport, formatAudit, instructionFinding, unmeasuredItems };

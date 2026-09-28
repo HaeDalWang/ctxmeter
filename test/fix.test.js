@@ -97,6 +97,7 @@ test('skips servers that failed to measure, since their cost is unknown', () => 
 test('points each harness at its own file and format', () => {
   // Arrange
   const home = fixtureHome();
+  write(home, '.claude.json', JSON.stringify({ mcpServers: { c: { command: 'a' } } }));
   write(home, '.kiro/settings/mcp.json', JSON.stringify({ mcpServers: { k: { command: 'a' } } }, null, 2));
   write(home, '.codex/config.toml', '[mcp_servers.x]\ncommand = "a"\n');
   const mcpCost = mcpCostFor(home, [
@@ -223,7 +224,7 @@ test('the dry run names the target, the file, and the saving', () => {
   assert.match(text, /7,298/);
   assert.match(text, /30 tools/);
   assert.match(text, /config\.toml/);
-  assert.match(text, /--apply/);
+  assert.match(text, /--disable/);
 });
 
 test('an empty setup says so instead of printing an empty list', () => {
@@ -259,6 +260,7 @@ test('a Codex server whose name needs quoting is found under its quoted header',
 test('a Claude server is listed with the /mcp instruction, and the example apply names a file target', () => {
   // Arrange
   const home = fixtureHome();
+  write(home, '.claude.json', JSON.stringify({ mcpServers: { big: { command: 'a' } } }));
   write(home, '.codex/config.toml', '[mcp_servers.x]\ncommand = "a"\n');
   const mcpCost = mcpCostFor(home, [
     { harness: 'claude', name: 'big', status: MEASURED_STATUS, toolCount: 9, estimatedTokens: 9000 },
@@ -271,13 +273,14 @@ test('a Claude server is listed with the /mcp instruction, and the example apply
   // Assert
   assert.match(text, /claude\/big/);
   assert.match(text, /\/mcp/);
-  assert.match(text, /ctxmeter fix --apply codex\/x/);
-  assert.doesNotMatch(text, /--apply claude\/big/);
+  assert.match(text, /ctxmeter fix --disable codex\/x/);
+  assert.doesNotMatch(text, /--disable claude\/big/);
 });
 
 test('with only Claude servers the dry run does not suggest an --apply that cannot work', () => {
   // Arrange
   const home = fixtureHome();
+  write(home, '.claude.json', JSON.stringify({ mcpServers: { big: { command: 'a' } } }));
   const mcpCost = mcpCostFor(home, [{ harness: 'claude', name: 'big', status: MEASURED_STATUS, toolCount: 9, estimatedTokens: 9000 }]);
 
   // Act
@@ -285,15 +288,33 @@ test('with only Claude servers the dry run does not suggest an --apply that cann
 
   // Assert
   assert.match(text, /\/mcp/);
-  assert.doesNotMatch(text, /--apply/);
+  assert.doesNotMatch(text, /--disable/);
 });
 
 test('planning a Claude proposal is refused with the instruction instead of writing', () => {
   // Arrange
   const home = fixtureHome();
+  write(home, '.claude.json', JSON.stringify({ mcpServers: { big: { command: 'a' } } }));
   const mcpCost = mcpCostFor(home, [{ harness: 'claude', name: 'big', status: MEASURED_STATUS, toolCount: 9, estimatedTokens: 9000 }]);
   const [proposal] = fixProposals({ home, snapshot: snapshotFor(home), mcpCost });
 
   // Act + Assert
   assert.throws(() => planProposal(proposal), /\/mcp/);
+});
+
+
+test('a cached cost for a server no longer configured is not offered', () => {
+  // Arrange
+  const home = fixtureHome();
+  write(home, '.codex/config.toml', '[mcp_servers.kept]\ncommand = "a"\n');
+  const mcpCost = mcpCostFor(home, [
+    { harness: 'codex', name: 'kept', status: MEASURED_STATUS, toolCount: 1, estimatedTokens: 100 },
+    { harness: 'codex', name: 'removed', status: MEASURED_STATUS, toolCount: 1, estimatedTokens: 900 },
+  ]);
+
+  // Act
+  const targets = fixProposals({ home, snapshot: snapshotFor(home), mcpCost }).map((proposal) => proposal.target);
+
+  // Assert
+  assert.deepEqual(targets, ['codex/kept']);
 });

@@ -13,7 +13,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
-const { claudeMcpServers } = require('./claude-mcp');
+const { claudeMcpServerStates } = require('./claude-mcp');
 
 const PROTOCOL_VERSION = '2025-06-18';
 // A misbehaving server must not be able to exhaust our memory.
@@ -44,10 +44,11 @@ function readJson(file) {
   }
 }
 
-function toEntry(harness, name, value) {
+function toEntry(harness, name, value, enabled = true) {
   return {
     harness,
     name,
+    enabled,
     transport: value.command ? 'stdio' : 'http',
     command: value.command || null,
     args: Array.isArray(value.args) ? value.args : [],
@@ -61,13 +62,13 @@ function toEntry(harness, name, value) {
 function kiroEntries(home) {
   const config = readJson(path.join(home, '.kiro', 'settings', 'mcp.json'));
   return Object.entries(config?.mcpServers || {})
-    .filter(([, value]) => value && value.disabled !== true)
-    .map(([name, value]) => toEntry('kiro', name, value));
+    .filter(([, value]) => value && typeof value === 'object')
+    .map(([name, value]) => toEntry('kiro', name, value, value.disabled !== true));
 }
 
 /// Claude spreads servers across scopes; claude-mcp.js decides which load.
 function claudeEntries(home, workspace) {
-  return claudeMcpServers(home, workspace).map((server) => toEntry('claude', server.name, server.config));
+  return claudeMcpServerStates(home, workspace).map((server) => toEntry('claude', server.name, server.config, server.enabled));
 }
 
 /// The value part of `key = value`, without quotes or a trailing `# comment`.
@@ -97,7 +98,7 @@ function codexEntries(home) {
       current = name || null;
       if (serverMatch && current && !entries.has(current)) {
         entries.set(current, {
-          harness: 'codex', name: current, transport: 'stdio',
+          harness: 'codex', name: current, enabled: true, transport: 'stdio',
           command: null, args: [], envKeys: [], env: {}, url: null,
         });
       }
@@ -125,12 +126,18 @@ function codexEntries(home) {
     // disabled server costs nothing, and starting it anyway can launch a GUI app.
     if (pair[1] === 'enabled') entry.enabled = value.trim() !== 'false';
   }
-  return [...entries.values()].filter((entry) => entry.enabled !== false);
+  return [...entries.values()];
 }
 
+/// Every configured server, on or off. `fix` needs the off ones to turn them back on.
 /// Claude's local and project scopes depend on the workspace; the others do not.
-function mcpServerEntries(home, workspace = process.cwd()) {
+function configuredMcpServers(home, workspace = process.cwd()) {
   return [...claudeEntries(home, workspace), ...codexEntries(home), ...kiroEntries(home)];
+}
+
+/// Only the servers that are on. These are what `mcp-scan` may start.
+function mcpServerEntries(home, workspace = process.cwd()) {
+  return configuredMcpServers(home, workspace).filter((entry) => entry.enabled);
 }
 
 /// Shown before anything is executed so the user can inspect and refuse.
@@ -322,4 +329,4 @@ function formatMcpCost(result) {
   return lines.join('\n');
 }
 
-module.exports = { MEASURED_STATUS, describeDryRun, formatMcpCost, mcpServerEntries, measureMcpCost, toolSchemaBytes };
+module.exports = { MEASURED_STATUS, configuredMcpServers, describeDryRun, formatMcpCost, mcpServerEntries, measureMcpCost, toolSchemaBytes };

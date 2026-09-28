@@ -5,10 +5,12 @@ const os = require('node:os');
 const path = require('node:path');
 const { scanEnvironment, scanClaudeRuntime, scanCodexRuntime, scanKiroRuntime } = require('./scanner');
 const { auditReport, formatAudit } = require('./audit');
-const { DEFAULT_PORT, startDashboard } = require('./dashboard-server');
 const { describeDryRun, formatMcpCost, mcpServerEntries, measureMcpCost } = require('./mcp-cost');
-const { applyPlan, fixProposals, formatProposals, planProposal } = require('./fix');
+const { applyPlan, fixProposals, formatProposals } = require('./fix');
+const { listSwitches, planSwitch } = require('./switches');
 const { createStatusLine } = require('./status-line');
+const { HISTORY_DAYS, sessionHistory } = require('./session-history');
+const { buildDetails } = require('./details');
 const packageManifest = require('../package.json');
 
 const PROFILES_FILE = path.join(__dirname, '..', 'config', 'context-profiles.json');
@@ -31,28 +33,31 @@ function usage() {
   return [
     'Usage: ctxmeter [audit]    [--home <dir>] [--workspace <dir>]',
     '       ctxmeter mcp-scan   [--dry-run] [--allow-remote] [--timeout <ms>]',
-    '       ctxmeter fix        [--apply <target>] [--home <dir>] [--workspace <dir>]',
-    '       ctxmeter dashboard  [--port <n>] [--home <dir>] [--workspace <dir>]',
+    '       ctxmeter fix        [--disable|--enable <target>] [--json] [--home <dir>] [--workspace <dir>]',
     '       ctxmeter scan       [--home <dir>] [--workspace <dir>] [--output <file>]',
     '       ctxmeter telemetry  [--home <dir>] [--workspace <dir>]',
+    '       ctxmeter history    [--home <dir>] [--workspace <dir>]',
+    '       ctxmeter details    [--home <dir>] [--workspace <dir>]',
     '       ctxmeter --help | --version',
     '',
     'audit     (default) prints what your agent setup costs before you type anything.',
     'mcp-scan  measures MCP tool schema cost. This one starts your servers; see --dry-run.',
     'fix       lists switches that would free tokens. The only command that writes to',
-    '          your config, and only with --apply <target>. Backs up first and prints',
-    '          the undo command.',
-    'dashboard serves a local web view of snapshots and live session usage.',
+    '          your config, and only with --disable/--enable <target> (--apply is',
+    '          --disable). Backs up first and prints the undo command. --json lists',
+    '          every switch, on or off.',
     'scan      writes a full metadata-only inventory snapshot.',
     'telemetry prints current session usage as JSON without an inventory scan.',
+    'history   prints context per turn and the largest sessions of the last 7 days as JSON.',
+    'details   prints what each agent\'s context is made of, with every switch, as JSON.',
     '',
     'Nothing leaves this machine. Prompt, rule, skill, and secret contents are never copied.',
   ].join('\n');
 }
 
-const VALUE_FLAGS = ['--home', '--workspace', '--output', '--timeout', '--port', '--apply'];
-const BOOLEAN_FLAGS = ['--dry-run', '--allow-remote', '--i-understand-this-launches-servers'];
-const COMMANDS = ['audit', 'dashboard', 'fix', 'help', 'mcp-scan', 'scan', 'telemetry', 'version'];
+const VALUE_FLAGS = ['--home', '--workspace', '--output', '--timeout', '--apply', '--enable', '--disable'];
+const BOOLEAN_FLAGS = ['--dry-run', '--allow-remote', '--json', '--i-understand-this-launches-servers'];
+const COMMANDS = ['audit', 'details', 'fix', 'help', 'history', 'mcp-scan', 'scan', 'telemetry', 'version'];
 // A user who cannot get help cannot get anything else, so these short-circuit
 // parsing before an unrelated bad flag can turn into an error.
 const HELP_ALIASES = ['--help', '-h', 'help'];
@@ -205,14 +210,33 @@ async function runMcpScan(options) {
   return { summary: `${formatMcpCost(result)}\n\nCached to ${path.relative(workspace, cacheFile)}; audit will include it.` };
 }
 
-async function runDashboard(options, currentDirectory) {
-  const port = Number(options.port);
-  const { server, url } = await startDashboard({
-    root: path.resolve(options.workspace || currentDirectory),
-    home: options.home || os.homedir(),
-    port: Number.isFinite(port) ? port : DEFAULT_PORT,
-  });
-  return { server, summary: `ctxmeter dashboard: ${url}\nPress Control-C to stop.` };
+/// Which switch to flip and which way. `--apply` predates `--enable` and means off.
+function requestedToggle(options) {
+  const requests = [
+    options.apply && { target: options.apply, enabled: false },
+    options.disable && { target: options.disable, enabled: false },
+    options.enable && { target: options.enable, enabled: true },
+  ].filter(Boolean);
+  if (requests.length > 1) throw new Error('Pass only one of --apply, --disable, or --enable.');
+  return requests[0] || null;
+}
+
+function toggleSummary(result) {
+  const verb = result.enabled ? 'Switched on' : 'Switched off';
+  const effect = result.enabled
+    ? 'It will load again at startup.'
+    : `This frees about ${Number(result.tokens || 0).toLocaleString('en-US')} tokens at startup.`;
+  return [
+    `${verb} ${result.target}. ${Number.isFinite(result.tokens) || result.enabled ? effect : ''}`.trimEnd(),
+    '',
+    `  changed  ${result.file}`,
+    `  backup   ${result.backup}`,
+    '',
+    'To undo:',
+    `  ${result.rollback}`,
+    '',
+    'Restart the agent for the change to take effect, then rerun ctxmeter to confirm.',
+  ].join('\n');
 }
 
 /// Dry run by default. Writing needs an explicit target, so a mistyped command can
@@ -220,48 +244,48 @@ async function runDashboard(options, currentDirectory) {
 function runFix(options, currentDirectory) {
   const home = options.home || os.homedir();
   const workspace = path.resolve(options.workspace || currentDirectory);
+  const toggle = requestedToggle(options);
   const status = createStatusLine();
   status.show('Looking for switches that would free tokens…');
-  let proposals;
+  let context;
   try {
-    proposals = fixProposals({ home, snapshot: scanEnvironment({ home, workspace }), mcpCost: readMcpCache(workspace) });
+    context = { home, snapshot: scanEnvironment({ home, workspace }), mcpCost: readMcpCache(workspace) };
   } finally {
     status.clear();
   }
 
-  if (!options.apply) return { summary: formatProposals(proposals) };
+  if (!toggle) {
+    if (!options.json) return { summary: formatProposals(fixProposals(context)) };
+    return {
+      json: {
+        schemaVersion: '0.1.0',
+        generatedAt: new Date().toISOString(),
+        target: { home, workspace },
+        mcpMeasuredAt: context.mcpCost?.home === home ? context.mcpCost.measuredAt || null : null,
+        switches: listSwitches(context),
+      },
+    };
+  }
 
-  const proposal = proposals.find((candidate) => candidate.target === options.apply);
-  if (!proposal) {
+  const switches = listSwitches(context);
+  const item = switches.find((candidate) => candidate.target === toggle.target);
+  if (!item) {
     throw new Error([
-      `${options.apply} is not one of the switches ctxmeter can flip.`,
+      `${toggle.target} is not one of the switches ctxmeter can flip.`,
       '',
-      proposals.length ? 'Available targets:' : 'There are no available targets right now. Run ctxmeter fix to see why.',
-      ...proposals.map((candidate) => `  ${candidate.target}`),
+      switches.length ? 'Available targets:' : 'There are no available targets right now. Run ctxmeter fix to see why.',
+      ...switches.map((candidate) => `  ${candidate.target}`),
     ].join('\n'));
   }
 
-  const result = applyPlan(planProposal(proposal));
-  return {
-    summary: [
-      `Switched off ${result.target}, freeing about ${Number(result.tokens).toLocaleString('en-US')} tokens at startup.`,
-      '',
-      `  changed  ${result.file}`,
-      `  backup   ${result.backup}`,
-      '',
-      'To undo:',
-      `  ${result.rollback}`,
-      '',
-      'Restart the agent for the change to take effect, then rerun ctxmeter to confirm.',
-    ].join('\n'),
-  };
+  const result = applyPlan(planSwitch(item, toggle.enabled));
+  return options.json ? { json: result } : { summary: toggleSummary(result) };
 }
 
 async function run(argv = process.argv.slice(2), currentDirectory = process.cwd()) {
   const options = parseArgs(argv);
   if (options.command === 'help') return { summary: usage() };
   if (options.command === 'version') return { summary: packageManifest.version };
-  if (options.command === 'dashboard') return runDashboard(options, currentDirectory);
   if (options.command === 'mcp-scan') return runMcpScan(options);
   if (options.command === 'fix') return runFix(options, currentDirectory);
   if (options.command === 'audit') {
@@ -279,6 +303,42 @@ async function run(argv = process.argv.slice(2), currentDirectory = process.cwd(
   if (options.command === 'telemetry') {
     if (options.output) throw new Error('telemetry writes to stdout; --output is not supported');
     return { json: telemetryReport(options, currentDirectory) };
+  }
+  if (options.command === 'details') {
+    const home = options.home || os.homedir();
+    const workspace = path.resolve(options.workspace || currentDirectory);
+    const snapshot = scanEnvironment({ home, workspace });
+    const mcpCost = readMcpCache(workspace);
+    const profiles = readProfiles();
+    const trustedCost = mcpCost?.home === home ? mcpCost : null;
+    return {
+      json: {
+        schemaVersion: '0.1.0',
+        generatedAt: new Date().toISOString(),
+        target: { home, workspace },
+        mcpMeasuredAt: trustedCost?.measuredAt || null,
+        harnesses: buildDetails({
+          snapshot,
+          switches: listSwitches({ home, snapshot, mcpCost }),
+          telemetry: telemetrySummary(snapshot.harnesses, profiles),
+          profiles,
+          mcpCost: trustedCost,
+        }),
+      },
+    };
+  }
+  if (options.command === 'history') {
+    const home = options.home || os.homedir();
+    const workspace = path.resolve(options.workspace || currentDirectory);
+    return {
+      json: {
+        schemaVersion: '0.1.0',
+        generatedAt: new Date().toISOString(),
+        target: { home, workspace },
+        days: HISTORY_DAYS,
+        harnesses: sessionHistory({ home, workspace }),
+      },
+    };
   }
   const workspace = path.resolve(options.workspace || currentDirectory);
   const output = resolveOutput(workspace, options.output);

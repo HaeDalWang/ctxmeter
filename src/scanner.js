@@ -235,8 +235,14 @@ function claudeModelCatalog(root) {
   return { fetchedAt: null, selectedModel: null, models: [] };
 }
 
+/// Claude keeps one directory per workspace, named by its path with every
+/// non-alphanumeric character replaced.
+function claudeProjectDirectory(root, workspace) {
+  return path.join(root, 'projects', path.resolve(workspace).replace(/[^A-Za-z0-9]/g, '-'));
+}
+
 function claudeSessionTelemetry(root, workspace) {
-  const projectDirectory = path.join(root, 'projects', path.resolve(workspace).replace(/[^A-Za-z0-9]/g, '-'));
+  const projectDirectory = claudeProjectDirectory(root, workspace);
   if (!exists(projectDirectory)) return null;
   const files = fs.readdirSync(projectDirectory, { withFileTypes: true })
     .filter((entry) => entry.isFile() && entry.name.endsWith('.jsonl'))
@@ -338,14 +344,20 @@ function sessionWorkspace(file) {
   } catch { return null; }
 }
 
-function codexSessionTelemetry(root, workspace) {
+/// Codex sessions for this workspace, newest first. The workspace is recorded in
+/// each file's first line, so only that line is read to filter.
+function codexWorkspaceSessionFiles(root, workspace) {
   const workspaceRoot = path.resolve(workspace);
-  const files = walkFiles(path.join(root, 'sessions'), (file) => file.endsWith('.jsonl'))
+  return walkFiles(path.join(root, 'sessions'), (file) => file.endsWith('.jsonl'))
     .filter((file) => {
       const cwd = sessionWorkspace(file);
       return cwd === workspaceRoot || cwd?.startsWith(`${workspaceRoot}${path.sep}`);
     })
     .sort((left, right) => fs.statSync(right).mtimeMs - fs.statSync(left).mtimeMs);
+}
+
+function codexSessionTelemetry(root, workspace) {
+  const files = codexWorkspaceSessionFiles(root, workspace);
   if (!files.length) return null;
   const file = files[0];
   let startModel = null;
@@ -512,23 +524,26 @@ function tomlSectionNames(file) {
     .filter(Boolean);
 }
 
-function enabledCodexPluginIds(file) {
+/// Every `[plugins."<id>"]` block with whether it opts in. Absent means off.
+function codexPluginStates(file) {
   if (!fileExists(file)) return [];
-  const enabled = [];
-  let pluginId = null;
-  let active = false;
+  const states = [];
+  let current = null;
   for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
     const section = line.match(/^\s*\[([^\]]+)\]/)?.[1];
     if (section) {
-      if (pluginId && active) enabled.push(pluginId);
-      pluginId = section.match(/^plugins\."(.+)"$/)?.[1] || null;
-      active = false;
-    } else if (pluginId && /^\s*enabled\s*=\s*true(?:\s*(?:#.*)?)?$/.test(line)) {
-      active = true;
+      const pluginId = section.match(/^plugins\."(.+)"$/)?.[1] || null;
+      current = pluginId ? { id: pluginId, enabled: false } : null;
+      if (current) states.push(current);
+    } else if (current && /^\s*enabled\s*=\s*true(?:\s*(?:#.*)?)?$/.test(line)) {
+      current.enabled = true;
     }
   }
-  if (pluginId && active) enabled.push(pluginId);
-  return enabled;
+  return states;
+}
+
+function enabledCodexPluginIds(file) {
+  return codexPluginStates(file).filter((state) => state.enabled).map((state) => state.id);
 }
 
 /// `[mcp_servers.<name>]` blocks are live unless a block says `enabled = false`.
@@ -872,9 +887,14 @@ function scanEnvironment(options = {}) {
 
 module.exports = {
   classifyAssetPath,
+  claudeProjectDirectory,
+  codexPluginStates,
+  codexWorkspaceSessionFiles,
   createClaudeRuntimeReader,
   createCodexRuntimeReader,
   createKiroRuntimeReader,
+  kiroCliCandidates,
+  kiroIdeCandidates,
   scanEnvironment,
   scanClaudeRuntime,
   scanCodexRuntime,

@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 
-const { setJsonServerDisabled, setTomlSectionKey } = require('../src/config-edit');
+const { setJsonPluginEnabled, setJsonServerDisabled, setTomlSectionKey } = require('../src/config-edit');
 
 const TOML = [
   '# top of file',
@@ -151,4 +151,72 @@ test('refuses a server the file does not declare', () => {
 
   // Act & Assert
   assert.throws(() => setJsonServerDisabled(content, 'absent', true), /absent/);
+});
+
+
+test('sets one Claude plugin in enabledPlugins and leaves every other key alone', () => {
+  // Arrange
+  const content = `${JSON.stringify({ model: 'opus', enabledPlugins: { 'a@m': true, 'b@m': true }, hooks: {} }, null, 2)}\n`;
+
+  // Act
+  const result = setJsonPluginEnabled(content, 'a@m', false);
+
+  // Assert
+  assert.equal(result.changed, true);
+  assert.deepEqual(JSON.parse(result.content), { model: 'opus', enabledPlugins: { 'a@m': false, 'b@m': true }, hooks: {} });
+  assert.ok(result.content.endsWith('\n'));
+});
+
+test('refuses a plugin that enabledPlugins does not list rather than inventing one', () => {
+  // Arrange
+  const content = JSON.stringify({ enabledPlugins: { 'a@m': true } });
+
+  // Act + Assert
+  assert.throws(() => setJsonPluginEnabled(content, 'ghost@m', false), /not listed/);
+});
+
+test('reports no change when the plugin already has the wanted value', () => {
+  // Arrange
+  const content = JSON.stringify({ enabledPlugins: { 'a@m': false } });
+
+  // Act + Assert
+  assert.equal(setJsonPluginEnabled(content, 'a@m', false).changed, false);
+});
+
+test('a nested array line inside a value is not mistaken for a section header', () => {
+  // Arrange: `["a", "b"],` starts with a bracket but belongs to `args`.
+  const content = [
+    '[mcp_servers.x]',
+    'args = [',
+    '  ["a", "b"],',
+    ']',
+    'enabled = true',
+    '',
+  ].join('\n');
+
+  // Act
+  const result = setTomlSectionKey(content, 'mcp_servers.x', 'enabled', 'false');
+
+  // Assert: the existing key is replaced, not duplicated above it.
+  assert.equal(result.action, 'replaced');
+  assert.equal(result.content.match(/enabled =/g).length, 1);
+});
+
+test('a bracketed line inside a multi-line string is not mistaken for a section header', () => {
+  // Arrange
+  const content = [
+    '[mcp_servers.x]',
+    'description = """',
+    '[not a section]',
+    '"""',
+    'enabled = true',
+    '',
+  ].join('\n');
+
+  // Act
+  const result = setTomlSectionKey(content, 'mcp_servers.x', 'enabled', 'false');
+
+  // Assert
+  assert.equal(result.action, 'replaced');
+  assert.equal(result.content.match(/enabled =/g).length, 1);
 });

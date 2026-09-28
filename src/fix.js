@@ -7,97 +7,26 @@
 // are offered, every change is one key, a backup goes next to the original, and the
 // rollback is printed rather than stored.
 
-const fs = require('node:fs');
 const path = require('node:path');
-const { setJsonServerDisabled, setTomlSectionKey } = require('./config-edit');
-const { MEASURED_STATUS } = require('./mcp-cost');
-
-const JSON_LOCATIONS = {
-  kiro: ['.kiro', 'settings', 'mcp.json'],
-};
-
-// Claude's off switch is projects[<workspace>].disabledMcpServers in
-// ~/.claude.json, a large file Claude rewrites while it runs. A concurrent write
-// could lose the change or the file, so ctxmeter names the switch instead.
-const CLAUDE_INSTRUCTION = 'switch it off in Claude Code: run /mcp and disable it (applies to this project)';
+const fs = require('node:fs');
+const { listSwitches, planSwitch } = require('./switches');
 
 function integer(value) {
   return Number(value || 0).toLocaleString('en-US');
 }
 
-function mcpProposal(home, server) {
-  // An unmeasured server has no saving to promise, so it is not offered.
-  if (server.status !== MEASURED_STATUS || !Number.isFinite(server.estimatedTokens)) return null;
-  const detail = Number.isFinite(server.toolCount) ? `${server.toolCount} tool${server.toolCount === 1 ? '' : 's'}` : null;
-  const base = {
-    target: `${server.harness}/${server.name}`,
-    harness: server.harness,
-    kind: 'mcp-server',
-    name: server.name,
-    tokens: server.estimatedTokens,
-    detail,
-  };
-
-  if (server.harness === 'codex') {
-    // TOML only allows [A-Za-z0-9_-] in a bare key; anything else is quoted.
-    const key = /^[A-Za-z0-9_-]+$/.test(server.name) ? server.name : `"${server.name}"`;
-    return { ...base, file: path.join(home, '.codex', 'config.toml'), format: 'toml', section: `mcp_servers.${key}` };
-  }
-  if (server.harness === 'claude') return { ...base, file: null, format: 'manual', instruction: CLAUDE_INSTRUCTION };
-  const location = JSON_LOCATIONS[server.harness];
-  if (!location) return null;
-  return { ...base, file: path.join(home, ...location), format: 'json' };
-}
-
-/// Codex plugin groups are the only skill groups with a vendor-supported off
-/// switch. A group the user assembled themselves is content, not configuration.
-function pluginProposals(home, codex) {
-  const enabled = new Set(codex?.enabledPlugins || []);
-  return (codex?.skillGroups || [])
-    .filter((group) => enabled.has(group.id) && Number.isFinite(group.metadataTokenEstimate) && group.metadataTokenEstimate > 0)
-    .map((group) => ({
-      target: `codex/plugin:${group.id}`,
-      harness: 'codex',
-      kind: 'plugin-group',
-      name: group.id,
-      tokens: group.metadataTokenEstimate,
-      detail: Number.isFinite(group.skillCount) ? `${group.skillCount} skill${group.skillCount === 1 ? '' : 's'}` : null,
-      file: path.join(home, '.codex', 'config.toml'),
-      format: 'toml',
-      section: `plugins."${group.id}"`,
-    }));
-}
-
+/// Switches worth turning off: currently on, with a measured cost. An unmeasured
+/// item has no saving to promise, so it is not offered here (the menu bar still
+/// lists it).
 function fixProposals({ home, snapshot, mcpCost }) {
-  // The same guard the audit uses: a cache from another home describes another
-  // machine's servers.
-  const trusted = mcpCost && mcpCost.home && mcpCost.home === snapshot?.target?.home ? mcpCost : null;
-  const servers = (trusted?.servers || [])
-    .map((server) => mcpProposal(home, server))
-    .filter(Boolean);
-
-  return [...servers, ...pluginProposals(home, snapshot?.harnesses?.codex)]
-    .filter((proposal) => proposal.format === 'manual' || fs.existsSync(proposal.file))
+  return listSwitches({ home, snapshot, mcpCost })
+    .filter((item) => item.enabled && Number.isFinite(item.tokens) && item.tokens > 0)
     .sort((left, right) => right.tokens - left.tokens);
 }
 
 /// Computes the edit without touching the file, so the caller can show it first.
-function planProposal(proposal) {
-  if (proposal.format === 'manual') throw new Error(`ctxmeter does not edit this one; ${proposal.instruction}.`);
-  const before = fs.readFileSync(proposal.file, 'utf8');
-  const result = proposal.format === 'toml'
-    ? setTomlSectionKey(before, proposal.section, 'enabled', 'false')
-    : setJsonServerDisabled(before, proposal.name, true);
-
-  return {
-    proposal,
-    file: proposal.file,
-    before,
-    after: result.content,
-    changed: result.changed,
-    line: result.line ?? null,
-    change: proposal.format === 'toml' ? `enabled = false under [${proposal.section}]` : `"disabled": true on "${proposal.name}"`,
-  };
+function planProposal(proposal, enabled = false) {
+  return planSwitch(proposal, enabled);
 }
 
 function backupPath(file, now) {
@@ -110,7 +39,7 @@ function shellQuote(value) {
 }
 
 function applyPlan(plan, now = new Date()) {
-  if (!plan.changed) throw new Error(`${plan.proposal.target} is already switched off; nothing to do`);
+  if (!plan.changed) throw new Error(`${plan.proposal.target} is already switched ${plan.enabled ? 'on' : 'off'}; nothing to do`);
   const backup = backupPath(plan.file, now);
   fs.copyFileSync(plan.file, backup);
   fs.writeFileSync(plan.file, plan.after);
@@ -119,6 +48,7 @@ function applyPlan(plan, now = new Date()) {
     file: plan.file,
     backup,
     tokens: plan.proposal.tokens,
+    enabled: plan.enabled,
     rollback: `cp ${shellQuote(backup)} ${shellQuote(plan.file)}`,
   };
 }
@@ -159,7 +89,7 @@ function formatProposals(proposals) {
     return lines.join('\n');
   }
   lines.push('Nothing has been changed. To switch one off:');
-  lines.push(`  ctxmeter fix --apply ${applicable.target}`);
+  lines.push(`  ctxmeter fix --disable ${applicable.target}`);
   lines.push('');
   lines.push('A backup is written next to the file and the undo command is printed.');
   return lines.join('\n');

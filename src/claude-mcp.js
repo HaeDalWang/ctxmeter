@@ -46,7 +46,9 @@ function projectApproval(home, workspace, project) {
   return (name) => !rejected.has(name) && (approveAll || approved.has(name));
 }
 
-function claudeMcpServers(home, workspace) {
+/// Every server Claude would consider for this workspace, with `enabled: false`
+/// for those switched off by /mcp.
+function claudeMcpServerStates(home, workspace) {
   const root = path.resolve(workspace);
   const state = readJson(path.join(home, '.claude.json')) || {};
   const project = serverMap(serverMap(state.projects)[root]);
@@ -65,7 +67,13 @@ function claudeMcpServers(home, workspace) {
       if (config && typeof config === 'object') byName.set(name, { name, scope, config });
     }
   }
-  return [...byName.values()].filter((server) => !switchedOff.has(server.name));
+  return [...byName.values()].map((server) => ({ ...server, enabled: !switchedOff.has(server.name) }));
 }
 
-module.exports = { claudeMcpServers };
+function claudeMcpServers(home, workspace) {
+  return claudeMcpServerStates(home, workspace)
+    .filter((server) => server.enabled)
+    .map(({ enabled, ...server }) => server);
+}
+
+module.exports = { claudeMcpServerStates, claudeMcpServers };
