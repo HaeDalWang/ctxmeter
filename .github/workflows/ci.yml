@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
 
 jobs:
@@ -14,6 +15,9 @@ jobs:
         with:
           node-version: '20'
       - run: node --test
+        env:
+          # Set only on a tag push; the version test then checks the tag too.
+          RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
       - name: Audit runs on a machine with no agent configuration
         run: node src/cli.js audit --home "$(mktemp -d)"
 
