@@ -19,12 +19,12 @@ npm test
 npx ctxmeter                 # audit
 npx ctxmeter scan            # JSON snapshot
 npx ctxmeter telemetry       # session usage only
-npx ctxmeter dashboard       # local web view
+npx ctxmeter history         # context per turn, largest recent sessions
+npx ctxmeter details         # composition and switches per agent
 ```
 
 The default scan writes a timestamped JSON snapshot under `.ctxmeter/snapshots/`.
 `ctxmeter telemetry` prints current session usage for all three harnesses as JSON on stdout and runs no inventory scan, which makes it the cheap path for an external status display. It takes about 0.2s including Node startup, against seconds for a full scan.
-The dashboard listens only on `http://127.0.0.1:4318`, lists local snapshots, and does not start unless you ask for it.
 To choose the target paths explicitly:
 
 ```bash
@@ -88,53 +88,25 @@ Symlinked assets are followed. Sharing one skill or rule file across harnesses b
 
 Skill bodies are not counted as baseline context. ctxmeter estimates only YAML frontmatter bytes for skill metadata, because full skill bodies are typically loaded on demand.
 
-## Context budget and calibration
+## History, details, and switches
 
-The first dashboard panel is model-aware and separates three kinds of numbers:
+These three commands feed the menu bar app and print JSON.
 
-- **Observed input:** numeric usage from the latest local Claude or Codex session JSONL
-- **Cross-model proxy:** a recorded session's input projected onto another selected model's context window
-- **File estimate:** static byte-based fallback when no local session usage exists
+- **`history`** reads every session of the workspace updated in the last 7 days. Claude: each assistant row's `usage` (input + cache read + cache creation), subagent rows excluded, `system/compact_boundary` as a compaction. Codex: `token_usage_record.payload.usage.input_tokens` per request, `compacted` rows as compactions. Kiro: `contextUsage` percentages (IDE) or per-turn `context_usage_percentage` (CLI), so its unit is percent. The current session keeps up to 60 samples; downsampling keeps each bucket's peak and always ends on the latest value.
+- **`details`** splits the observed input into instructions, skill metadata, and MCP schemas (file and measurement estimates, clamped so they never exceed what was observed) plus the unattributed rest, and lists every item that loads at startup with its switch. Without an observed token count (Kiro) there is no remainder, only the estimates.
+- **`fix --json`** lists every switch, on or off. A cost is `null` until it has been measured; a server that is off keeps the cost from the last `mcp-scan` that saw it on.
 
-Choose `Claude Code` or `Codex` above the model row. Claude reads numeric usage from the newest JSONL for the scanned workspace; Codex reads numeric telemetry from the newest local session JSONL belonging to that workspace and model metadata from `models_cache.json`. Prompt, response, and compaction text are never copied into a snapshot.
+Known model capacities are sourced from vendor documentation. A model without an exact matching profile shows `capacity unknown`; ctxmeter does not guess a capacity.
 
-The checked-in [`config/context-profiles.json`](config/context-profiles.json) retains a `/context` sample observed on 2026-09-21 for Claude Opus 5 as a fallback when no local session usage exists. The dashboard does not require `/context` for observed totals.
-
-That fallback calibration records the inventory observed at the time. If the inventory changes, ctxmeter does not present its old category totals as current. Live session totals remain available independently.
-
-The default view shows the latest input context. The first-response toggle includes the first user prompt for both harnesses. If the first response used a different model, its value is labeled as a proxy. Claude's context map reserves the configured autocompact buffer as an estimate of available working space.
-
-Known model capacities are sourced from Anthropic documentation. A locally discovered model without an exact matching profile remains visible with `용량 미확인`; ctxmeter does not guess a capacity.
-
-Codex's budget denominator is the active session's reported context window when available, otherwise the installed CLI catalog's `context_window × effective_context_window_percent`. The catalog's `max_context_window` is shown separately as a local catalog ceiling. These are not the model's published API limit: the official API model pages currently list 1,050,000 tokens for GPT-6 Astra, GPT-5.6 Sol/Terra/Luna, and GPT-5.5. The dashboard displays that API specification separately with a source link. Codex configuration also supports model-context and auto-compaction overrides.
+Codex's budget denominator is the active session's reported context window when available, otherwise the installed CLI catalog's `context_window × effective_context_window_percent`. The catalog's `max_context_window` is shown separately as a local catalog ceiling. These are not the model's published API limit: the official API model pages currently list 1,050,000 tokens for GPT-6 Astra, GPT-5.6 Sol/Terra/Luna, and GPT-5.5. Codex configuration also supports model-context and auto-compaction overrides.
 
 ## Important limits
 
-`metadataTokenEstimate` is a byte-based heuristic, not the model's exact token count. Claude and Codex JSONL totals are observed, but neither attributes input tokens to system prompt, tools, skills, and messages separately; ctxmeter subtracts static instruction/skill estimates and labels the remainder as unclassified. A Claude workspace without a local JSONL keeps the fallback file estimate or calibration. Historical snapshots update when `ctxmeter scan` runs, while an open dashboard refreshes current numeric telemetry separately.
+`metadataTokenEstimate` is a byte-based heuristic, not the model's exact token count. Claude and Codex JSONL totals are observed, but neither attributes input tokens to system prompt, tools, skills, and messages separately; ctxmeter subtracts static instruction/skill estimates and labels the remainder as unclassified. A Claude workspace without a local JSONL keeps the file estimate. Historical snapshots update only when `ctxmeter scan` runs.
 
-## Dashboard
+## Menu bar app
 
-The dashboard is intentionally local and dependency-free. It provides:
-
-- model tabs populated from Claude's local model catalog
-- agent tabs for Claude Code, Codex, and Kiro, each enabled only when a local session for the scanned workspace exists
-- Codex model tabs populated from `models_cache.json`, separating the active local context, catalog base/ceiling, and published API model capacity
-- Codex first/latest context, cached input, output, reasoning, thread cumulative usage, and compaction count
-- Claude first/latest context, cached input, and output from the scanned workspace's latest local session
-- low-overhead live mode: 10-second polling only while the Claude, Codex, or Kiro panel is selected and the browser tab is visible
-- a five-second server cache that avoids duplicate JSONL parsing across closely spaced requests
-- first-session and observed-session modes
-- a 100-cell context map with used categories, free space, and autocompact reserve
-- category rows for system prompt, system tools, MCP tools, custom agents, memory files, skills, and messages
-- a collapsible configuration-cost list for global/workspace instructions, individual Claude rule files, agent definitions, skill groups, hooks, MCP servers, and Codex plugins
-- counts, token totals, percentages, and confidence labels for every category
-- a three-harness overview for skills, hooks, and estimated skill metadata
-- snapshot selector that refreshes every ten seconds while the page is visible; it follows new scans only if the viewer was already on the newest snapshot
-- harness filter and inventory search
-- collapsible inventory groups: large groups such as ECC stay closed until selected, while search results expand automatically
-- asset detail: source group, relative path, status, metadata estimate, and body size
-
-It does not use a background watcher, database, Docker container, or external network request.
+The web dashboard was removed on 2026-09-28; the menu bar Details window replaced it (`develop/decisions/06`). The app runs the bundled CLI (`telemetry`, `history`, `details`, `fix --json`) and uses no background watcher, database, or network request.
 
 Live mode is demand-driven rather than a background watcher. Hiding the browser tab stops polling; returning to a visible Claude or Codex panel refreshes immediately. The `LIVE` badge shows the timestamp of the most recent local token record.
 

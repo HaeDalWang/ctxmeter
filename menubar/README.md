@@ -7,7 +7,7 @@ macOS menu bar front end for ctxmeter. Shows current context occupancy per harne
 Full Xcode is not required; the Swift command line tools are enough.
 
 ```bash
-make test      # swift test, 21 core tests
+make test      # swift test, 37 core tests
 make bundle    # assembles .build/release/CtxmeterBar.app
 make run       # bundle, then launch
 make install   # copy to /Applications
@@ -25,7 +25,20 @@ scripts/ctxmeter-bar.sh on | off | toggle | restart | status | install
 
 ## How it gets data
 
-The app runs the bundled `ctxmeter telemetry` command and decodes its JSON. The scanner stays in Node because it is already covered by the JavaScript test suite; duplicating it in Swift would create two sources of truth. Only decoding, formatting, and the node lookup live here, and those are what the Swift tests cover.
+The app runs the bundled CLI and decodes its JSON. The scanner stays in Node because it is already covered by the JavaScript test suite; duplicating it in Swift would create two sources of truth. Only decoding, formatting, chart scaling, prompts, and the node lookup live here, and those are what the Swift tests cover.
+
+| Command | When | Cost on this machine |
+|---|---|---|
+| `telemetry` | every refresh interval (30 s default) | ~0.2 s |
+| `history` | with a refresh, at most once a minute, and when the popover opens | ~0.4 s |
+| `details` | when Details opens, on rescan, and after a switch | ~3 s (full scan) |
+| `fix --enable/--disable <target> --json` | after the user confirms a switch | one file edit plus backup |
+
+## Charts and switches
+
+The popover charts context per turn for the current session, scaled to that session's peak so the shape stays readable at 19% of a 1m window; the caption states the peak's share of the window. A red tick marks a compaction. Each agent tab lists the largest sessions of the last 7 days.
+
+Details shows what the window is made of and every item that loads at startup, ranked by cost. Items with a native off flag get a switch. Flipping one opens a confirmation that states the saving (or that the cost is unmeasured), that a backup is kept, and which agent to restart; only then does the CLI write. Claude MCP servers show `/mcp` instead of a switch, because their flag lives in `~/.claude.json`, which Claude rewrites while it runs.
 
 `node` must be installed. A menu bar app inherits a minimal `PATH`, so `/usr/bin/env node` cannot be relied on. `NodeLocator` checks `/opt/homebrew/bin/node`, `/usr/local/bin/node`, and `/usr/bin/node` in that order, and Settings accepts an explicit override.
 
@@ -65,8 +78,8 @@ All three currently resolve: Claude 18.8% of 1m, Codex 27.0% of 258.4k, Kiro 37.
 
 ## Scope
 
-One workspace at a time, chosen in Settings and defaulting to the repository this app was built from. Configuration costs and the skill inventory stay in the web dashboard (`npx ctxmeter dashboard`).
+One workspace at a time, chosen in Settings and defaulting to the repository this app was built from. Details replaced the web dashboard, which was removed (`develop/decisions/06`).
 
 ## Not verified
 
-The menu bar item and popover were not confirmed programmatically: `osascript` needs Accessibility permission that is not granted here. Launch, absence of a Dock icon, no crash, and the app spawning the bundled CLI were all confirmed. Visual appearance needs a human look.
+Views were checked by rendering them offscreen with `ImageRenderer` against live data; buttons, toggles, and the segmented picker do not render that way and were not seen. The confirmation dialog and a real switch round trip through the app were not exercised by hand. On 2026-09-28 every build of the app, including the previous release, exited about two seconds after launch with `auxiliary scene activation failed … scene invalidated` from the status bar; that is an environment issue on this Mac, not a code change, and it blocked a live check.

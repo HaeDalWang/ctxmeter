@@ -28,11 +28,11 @@ npx ctxmeter
 npx ctxmeter mcp-scan --dry-run
 npx ctxmeter mcp-scan --i-understand-this-launches-servers
 
-# 3. Switch the expensive ones off. Dry run first; --apply backs up and prints the undo.
+# 3. Switch the expensive ones off. Dry run first; --disable backs up and prints the undo.
 npx ctxmeter fix
-npx ctxmeter fix --apply codex/code-review-graph
+npx ctxmeter fix --disable codex/code-review-graph   # --enable turns it back on
 
-# 4. Watch live occupancy from the macOS menu bar.
+# 4. Watch context per turn, and switch items from the macOS menu bar.
 git clone https://github.com/HaeDalWang/ctxmeter && cd ctxmeter/menubar
 make install     # then launch CtxmeterBar from /Applications
 
@@ -40,7 +40,7 @@ make install     # then launch CtxmeterBar from /Applications
 npx ctxmeter --help
 ```
 
-Measure, then act. Three surfaces over the same numbers: a one-shot CLI audit, a menu bar app for live occupancy, and a local web dashboard for per-file detail.
+Measure, then act. Two surfaces over the same numbers: the CLI for a one-shot audit and fix, and a menu bar app that charts context per turn and switches items on and off.
 
 ## Why you might want this
 
@@ -81,11 +81,11 @@ Knowing the number is half of it. `fix` turns each finding into one edit, and th
 
 ```bash
 ctxmeter fix                                  # dry run, changes nothing
-ctxmeter fix --apply codex/code-review-graph  # one target at a time
+ctxmeter fix --disable codex/code-review-graph  # one target at a time
 ```
 
 ```
-18,287 tokens sit behind 9 switches you can flip.
+20,747 tokens sit behind 12 switches you can flip.
 
      7,298  codex/code-review-graph, 30 tools
             [mcp_servers.code-review-graph] in ~/.codex/config.toml
@@ -93,14 +93,15 @@ ctxmeter fix --apply codex/code-review-graph  # one target at a time
             "playwright" in ~/.kiro/settings/mcp.json
      2,892  kiro/aws-mcp, 8 tools
             "aws-mcp" in ~/.kiro/settings/mcp.json
-       322  codex/plugin:github@openai-curated, 4 skills
-            [plugins."github@openai-curated"] in ~/.codex/config.toml
+     1,890  claude/plugin:aws-core@agent-toolkit-for-aws, 13 skills
+            "aws-core@agent-toolkit-for-aws" in ~/.claude/settings.json
+       ...
 
 Nothing has been changed. To switch one off:
-  ctxmeter fix --apply codex/code-review-graph
+  ctxmeter fix --disable codex/code-review-graph
 ```
 
-Claude Code servers are listed too, but with the `/mcp` step instead of a target: Claude's off switch lives in `~/.claude.json`, which Claude rewrites while it runs, so ctxmeter does not edit it.
+Claude plugins switch through `enabledPlugins` in `~/.claude/settings.json`. Claude MCP servers are listed with the `/mcp` step instead of a target: their off switch lives in `~/.claude.json`, which Claude rewrites while it runs, so ctxmeter does not edit it.
 
 Applying writes a backup next to the original and prints the undo command:
 
@@ -120,27 +121,18 @@ TOML is edited line by line and never reserialized, so comments and the other 78
 
 ## The macOS menu bar app
 
-One icon and one number in the menu bar: how full the context window of the agent you are watching actually is, refreshed every 30 seconds. Click for a per-agent breakdown, `Details` for all three side by side.
+One icon and one number in the menu bar: how full the context window of the agent you are watching is, refreshed every 30 seconds.
 
-<p align="center"><img src="docs/img/menubar.png" alt="CtxmeterBar popover showing Claude Code at 19.2 percent, and the detail window listing Claude Code, Codex, and Kiro with input tokens, context window, and observed time" width="860"></p>
+- **Popover:** context per turn for the current session of each agent, with compaction marked; hover a bar for that turn's value. Each agent's tab adds the largest sessions of the last 7 days.
+- **Details:** what the window is made of — instructions, skills, MCP schemas, messages, autocompact reserve, free — and every item that loads at startup, ranked by cost, with a switch on each one that has a native off flag. Every switch asks for confirmation, keeps a backup, and tells you which agent to restart.
 
 ```bash
 cd menubar
 make install     # /Applications/CtxmeterBar.app
-make run         # or just run it from the build directory
+scripts/ctxmeter-bar.sh on | off | toggle | status   # from the repo root
 ```
 
-Swift and SwiftPM only; full Xcode is not required. Agent icons are read from the vendor apps installed on your Mac, so no trademarked artwork ships in this repo. Refresh costs about 0.45% of one core at the default interval, because it reads session usage only and skips the inventory scan. [Details](menubar/README.md).
-
-## The web dashboard
-
-```bash
-npx ctxmeter dashboard        # 127.0.0.1:4318, localhost only
-```
-
-Per-harness context maps, collapsible per-file cost, and live session numbers polled while the tab is visible. This is where per-item configuration cost lives — the menu bar app deliberately shows occupancy only.
-
-<p align="center"><img src="docs/img/dashboard.png" alt="ctxmeter dashboard showing Claude Code at 192k of 1m tokens, broken down into messages, instructions, skill metadata, and autocompact buffer" width="860"></p>
+Swift and SwiftPM only; full Xcode is not required. Agent icons are read from the vendor apps installed on your Mac, so no trademarked artwork ships in this repo. Telemetry refresh reads session usage only; session history refreshes at most once a minute, and the Details scan runs only when the window opens or after a switch. [Details](menubar/README.md).
 
 ## What it never does
 
@@ -151,7 +143,8 @@ Two commands step outside read-only, and both require an explicit flag:
 | Command | What it does beyond reading | Gate |
 |---|---|---|
 | `mcp-scan` | starts each configured server to read its tool list | `--i-understand-this-launches-servers` |
-| `fix` | sets one key in one config file | `--apply <target>` |
+| `fix` | sets one key in one config file | `--disable` / `--enable <target>` |
+| menu bar switches | the same edit as `fix` | a confirmation dialog on every switch |
 
 Everything else only reads, and the default invocation of both of those only reads too. `mcp-scan` passes your shell environment through to each server it starts, because servers need `PATH` and `HOME` to run at all. That is how every MCP client works, and it is why the command is opt-in.
 
@@ -169,10 +162,11 @@ Everything else only reads, and the default invocation of both of those only rea
 |---|---|
 | `npx ctxmeter` | audit; ranked startup cost per agent |
 | `npx ctxmeter mcp-scan` | measure MCP tool schemas (starts your servers) |
-| `npx ctxmeter fix` | list switches that would free tokens; `--apply` to flip one |
+| `npx ctxmeter fix` | list switches that would free tokens; `--disable` / `--enable` to flip one; `--json` for all |
 | `npx ctxmeter scan` | full inventory snapshot as JSON |
 | `npx ctxmeter telemetry` | current session usage as JSON, ~0.2s |
-| `npx ctxmeter dashboard` | local web dashboard |
+| `npx ctxmeter history` | context per turn and the largest recent sessions, as JSON |
+| `npx ctxmeter details` | what each agent's context is made of, with every switch, as JSON |
 | `npx ctxmeter --help` | every command and flag |
 | `cd menubar && make install` | macOS menu bar app |
 
