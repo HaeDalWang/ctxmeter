@@ -25,6 +25,7 @@ struct PopoverView: View {
         }
         .padding(12)
         .frame(width: 340)
+        .task { await store.refreshHistoryIfStale() }
     }
 
     @ViewBuilder
@@ -33,15 +34,39 @@ struct PopoverView: View {
         case .overview:
             VStack(spacing: 8) {
                 ForEach(Harness.allCases, id: \.self) { harness in
-                    HarnessRow(
-                        harness: harness,
-                        entry: store.report?.entry(harness),
-                        isMenuBarFocus: harness == store.menuBarFocus
-                    )
+                    VStack(alignment: .leading, spacing: 3) {
+                        HarnessRow(
+                            harness: harness,
+                            entry: store.report?.entry(harness),
+                            isMenuBarFocus: harness == store.menuBarFocus
+                        )
+                        if let history = store.history?.entry(harness), let session = history.current {
+                            SessionChart(harness: harness, session: session, unit: history.unit,
+                                         window: window(harness, unit: history.unit), height: 16, showsCaption: false)
+                        }
+                    }
                 }
             }
         case .harness(let harness):
-            HarnessDetail(harness: harness, entry: store.report?.entry(harness))
+            VStack(alignment: .leading, spacing: 10) {
+                HarnessDetail(harness: harness, entry: store.report?.entry(harness))
+                if let history = store.history?.entry(harness) {
+                    if let session = history.current {
+                        Divider()
+                        SessionChart(harness: harness, session: session, unit: history.unit,
+                                     window: window(harness, unit: history.unit))
+                    }
+                    TopSessions(harness: harness, history: history, days: store.history?.days ?? 7)
+                }
+            }
+        }
+    }
+
+    /// The window in the chart's unit, so the caption can state the peak's share.
+    private func window(_ harness: Harness, unit: HistoryUnit) -> Double? {
+        switch unit {
+        case .percent: 100
+        case .tokens: store.report?.entry(harness)?.contextWindowTokens.map(Double.init)
         }
     }
 
