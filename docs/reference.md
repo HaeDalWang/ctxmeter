@@ -37,9 +37,11 @@ Each harness declares MCP servers in its own file and each supports switching on
 
 | Harness | File | Flag | Default when absent |
 |---|---|---|---|
-| Claude Code | `~/.claude/mcp.json` | `"disabled": true` | enabled |
+| Claude Code | `~/.claude.json` (user: `mcpServers`; local: `projects[<workspace>].mcpServers`) and `<workspace>/.mcp.json` (project, loaded only once approved) | per project: `projects[<workspace>].disabledMcpServers`, set by `/mcp` | enabled |
 | Codex | `~/.codex/config.toml` | `enabled = false` under `[mcp_servers.<name>]` | enabled |
 | Kiro | `~/.kiro/settings/mcp.json` | `"disabled": true` | enabled |
+
+Claude's locations follow [the Claude Code MCP docs](https://code.claude.com/docs/en/mcp). A name defined in several scopes loads once, local over project over user. `~/.claude/mcp.json` is not read: Claude Code does not load it. `fix` lists Claude servers with the `/mcp` step rather than editing `~/.claude.json`, because Claude rewrites that file while it runs.
 
 Codex plugin groups use `[plugins."<name>@<marketplace>"]` with `enabled = true`, and there the default when absent is **off** — the opposite of MCP servers, which is why the two are read by separate functions rather than one shared one.
 

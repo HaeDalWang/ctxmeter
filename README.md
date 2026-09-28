@@ -13,7 +13,7 @@
 npx ctxmeter
 ```
 
-<p align="center"><img src="docs/demo.gif" alt="ctxmeter audit output showing 36,657 tokens of startup cost across Kiro, Claude Code, and Codex" width="760"></p>
+<p align="center"><img src="docs/demo.gif" alt="ctxmeter audit output showing 33,458 tokens of startup cost across Kiro, Claude Code, and Codex" width="760"></p>
 
 Skills, rule files, steering docs, hooks, and MCP servers all load at session start. You find out when compaction hits. One command, no config, no account, nothing leaves your machine.
 
@@ -62,17 +62,15 @@ ctxmeter mcp-scan --i-understand-this-launches-servers
 ```
 
 ```
-MCP tool schemas cost 21,076 tokens across 81 tools.
+MCP tool schemas cost 17,877 tokens across 78 tools.
 
   codex/code-review-graph: 7,298 tokens, 30 tools
   kiro/playwright: 4,352 tokens, 25 tools
   kiro/aws-mcp: 2,892 tokens, 8 tools
-  claude/aws-knowledge-mcp-server: 1,875 tokens, 5 tools
-  claude/awslabs.aws-api-mcp-server: 1,865 tokens, 2 tools
   kiro/context7: 1,148 tokens, 2 tools
   codex/shadcn: 1,124 tokens, 7 tools
+  codex/node_repl: 541 tokens, 4 tools
   kiro/exa: 522 tokens, 2 tools
-  codex/node_repl: failed — exited before answering
 ```
 
 Per-server timeouts, hard kills, remote servers skipped unless you opt in, and schemas discarded after counting. Servers you have switched off are never started. The result is cached so `ctxmeter` folds it into the audit.
@@ -87,7 +85,7 @@ ctxmeter fix --apply codex/code-review-graph  # one target at a time
 ```
 
 ```
-21,486 tokens sit behind 10 switches you can flip.
+18,287 tokens sit behind 9 switches you can flip.
 
      7,298  codex/code-review-graph, 30 tools
             [mcp_servers.code-review-graph] in ~/.codex/config.toml
@@ -101,6 +99,8 @@ ctxmeter fix --apply codex/code-review-graph  # one target at a time
 Nothing has been changed. To switch one off:
   ctxmeter fix --apply codex/code-review-graph
 ```
+
+Claude Code servers are listed too, but with the `/mcp` step instead of a target: Claude's off switch lives in `~/.claude.json`, which Claude rewrites while it runs, so ctxmeter does not edit it.
 
 Applying writes a backup next to the original and prints the undo command:
 

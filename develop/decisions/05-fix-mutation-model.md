@@ -19,6 +19,13 @@ So `fix` never has to comment out a block, delete a section, or move a file. Eve
 change is one key. That collapses the risk surface to almost nothing and it is why
 this feature is worth building now rather than later.
 
+> **Amended 2026-09-28** (`execution/06-review-and-fixes.md`): the Claude row was
+> wrong. Claude Code does not read `~/.claude/mcp.json`; its servers live in
+> `~/.claude.json` and `<workspace>/.mcp.json`, and the off switch is
+> `projects[<workspace>].disabledMcpServers`. That file is large and rewritten by
+> Claude while it runs, so `fix` no longer writes for Claude and prints the `/mcp`
+> step instead. The one-key rule still holds for Codex and Kiro.
+
 ## Rules
 
 **Dry run is the default.** `ctxmeter fix` prints proposals and the exact edit it
