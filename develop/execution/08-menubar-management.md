@@ -53,13 +53,37 @@ Menu bar (Swift tests 26 → 37):
   refused with exit 1 — on a stand-in `settings.json` holding only `enabledPlugins`.
 - Live configs untouched: no `*.ctxmeter-*.bak` beside any of them.
 
-## Not verified — blocked
+## Launch and visibility — resolved
 
-Every build of the app exits about two seconds after launch with `auxiliary scene
-activation failed … scene invalidated`, including a clean build of the previous
-commit and the copy installed in `/Applications` at 09:39. So this is the
-environment, not this change (confirmed by the previous commit failing the same
-way). Unknown cause. Candidates, not checked: the app disallowed under System
-Settings → Menu Bar, or Control Center holding a stale scene after `make bundle`
-deleted a running bundle. A live look at the popover, Details, and one real
-switch is still owed.
+Two separate faults, both confirmed on this Mac (macOS 26).
+
+1. The app quit ~2 s after every launch. When Control Center refused the status
+   item, SwiftUI's `MenuBarExtra` scene closed, and AppKit treated that as the
+   last window closing. Fix: `MenuBarExtra(isInserted:)` plus an app delegate
+   returning `false` from `applicationShouldTerminateAfterLastWindowClosed`.
+   Same failure as akring.com "A strange bug caused by SwiftUI + macOS 26".
+2. The icon stayed hidden even with the app alive and the System Settings
+   toggle on. Control Center's private allow-list (`trackedApplications` in
+   `group.com.apple.controlcenter.plist`) had our own entry at
+   `isAllowed=False`, and the entry for the Orca terminal (disabled, and the
+   process that ran `open`) listed `local.ctxmeter.bar` in its
+   `menuItemLocations`. A trivial status-item app under this bundle id was
+   hidden the same way, and under a fresh id was not, so the state is keyed on
+   the bundle id, not the code. Same as steipete/CodexBar#1440 and #1945.
+   Rebooting does not clear it; the GUI toggle did not either.
+   Fix: `scripts/menubar-allowlist.py --repair` (backs up, sets our entry
+   allowed, drops our id from other entries, restarts cfprefsd and Control
+   Center). Needs Full Disk Access. After it, the icon showed (user screenshot,
+   19:48).
+
+Rejected: notch overflow (screenshot showed free space and a test item drew
+there); moving off `MenuBarExtra` (a minimal `MenuBarExtra` app drew fine under
+another id, so it is not the cause of the hiding).
+
+Recurrence risk: launching from a disabled terminal can re-attribute the item.
+Orca is now allowed in Menu Bar, so a new claim inherits `true`.
+
+Popover (Overview, Claude tab with session chart, compaction marker, and largest
+sessions) and the Details window (composition bar, startup items with switches)
+seen live on 2026-09-28 (user screenshots). Still owed: one real switch through
+the confirmation dialog.

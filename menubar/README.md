@@ -82,4 +82,8 @@ One workspace at a time, chosen in Settings and defaulting to the repository thi
 
 ## Not verified
 
-Views were checked by rendering them offscreen with `ImageRenderer` against live data; buttons, toggles, and the segmented picker do not render that way and were not seen. The confirmation dialog and a real switch round trip through the app were not exercised by hand. On 2026-09-28 every build of the app, including the previous release, exited about two seconds after launch with `auxiliary scene activation failed … scene invalidated` from the status bar; that is an environment issue on this Mac, not a code change, and it blocked a live check.
+Popover and Details were seen live on 2026-09-28. The confirmation dialog and a real switch round trip through the app were not exercised by hand.
+
+## If the icon does not appear (macOS 26)
+
+The app can be running with the Menu Bar toggle on and still be hidden: Control Center's private allow-list may keep our entry disallowed, or let another disabled app (often the terminal that launched us) claim our item. Check with `scripts/menubar-allowlist.py`; fix with `scripts/menubar-allowlist.py --repair` (needs Full Disk Access; prints a rollback command), then relaunch. Background: `develop/execution/08-menubar-management.md`.
