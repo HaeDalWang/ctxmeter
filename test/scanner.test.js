@@ -143,7 +143,7 @@ test('configuration costs distinguish file estimates from runtime costs and hono
   write(home, '.claude/rules/common/testing.md', 'RULE PRIVATE BODY');
   write(home, '.claude/agents/reviewer.md', 'AGENT PRIVATE BODY');
   write(home, '.claude/settings.json', JSON.stringify({ hooks: { Stop: [{}] } }));
-  write(home, '.claude/mcp.json', JSON.stringify({ mcpServers: { docs: { command: 'SECRET COMMAND' } } }));
+  write(home, '.claude.json', JSON.stringify({ mcpServers: { docs: { command: 'SECRET COMMAND' } } }));
   write(home, '.codex/AGENTS.md', 'OLD GLOBAL INSTRUCTION');
   write(home, '.codex/AGENTS.override.md', 'OVERRIDE PRIVATE BODY');
   write(home, '.codex/agents/reviewer.toml', 'description = "PRIVATE AGENT"');

@@ -2,6 +2,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { claudeMcpServers } = require('./claude-mcp');
 
 function exists(directory) {
   try {
@@ -28,9 +29,9 @@ function readJson(file, fallback = {}) {
   }
 }
 
-/// Claude and Kiro both store servers under `mcpServers` with a `disabled` flag.
-/// A disabled server contributes nothing to the prompt, so counting it would
-/// overstate how much of the setup is unmeasured.
+/// Kiro stores servers under `mcpServers` with a `disabled` flag. (Claude's
+/// scopes are resolved in claude-mcp.js.) A disabled server contributes nothing
+/// to the prompt, so counting it would overstate how much is unmeasured.
 function enabledMcpServerNames(config) {
   return Object.entries(config?.mcpServers || {})
     .filter(([, value]) => value && value.disabled !== true)
@@ -471,7 +472,7 @@ function scanClaude(home, workspace) {
   const claudeMd = fileSummary(path.join(root, 'CLAUDE.md'));
   const ruleFiles = walkFiles(path.join(root, 'rules'), (file) => file.endsWith('.md'));
   const hookCount = countHooks(settings.hooks);
-  const configuredMcpServerCount = enabledMcpServerNames(readJson(path.join(root, 'mcp.json'))).length;
+  const configuredMcpServerCount = claudeMcpServers(home, workspace).length;
   const configurationCosts = [
     costItem('instructions', 'Global CLAUDE.md', path.join(root, 'CLAUDE.md'), 'startup'),
     ...directoryCostItems('rules', 'Rule file', path.join(root, 'rules'), '.md', 'conditional'),
@@ -482,7 +483,7 @@ function scanClaude(home, workspace) {
     }),
     ...skillCostItems(skillGroups),
     runtimeCostItem('hooks', 'Configured hooks', hookCount),
-    runtimeCostItem('mcp', 'User MCP servers', configuredMcpServerCount),
+    runtimeCostItem('mcp', 'MCP servers', configuredMcpServerCount),
     runtimeCostItem('plugins', 'Enabled plugins', enabledPlugins.length),
   ].filter(Boolean);
   return {

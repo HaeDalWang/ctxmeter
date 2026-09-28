@@ -76,12 +76,14 @@ test('tool schema bytes count only the fields a model is shown', () => {
 
 test('server entries come from both harnesses and skip disabled ones', () => {
   const home = fixtureHome();
-  write(home, '.claude/mcp.json', JSON.stringify({
+  const workspace = fixtureHome();
+  write(home, '.claude.json', JSON.stringify({
     mcpServers: {
       local: { command: 'node', args: ['server.js'], env: { TOKEN: 'SECRET VALUE' } },
       remote: { url: 'https://example.test/mcp', type: 'http' },
-      off: { command: 'node', args: ['x.js'], disabled: true },
+      off: { command: 'node', args: ['x.js'] },
     },
+    projects: { [workspace]: { disabledMcpServers: ['off'] } },
   }));
   write(home, '.codex/config.toml', [
     '[mcp_servers.docs]',
@@ -93,7 +95,7 @@ test('server entries come from both harnesses and skip disabled ones', () => {
     'command = "node"',
   ].join('\n'));
 
-  const entries = mcpServerEntries(home);
+  const entries = mcpServerEntries(home, workspace);
 
   assert.deepEqual(entries.map((entry) => `${entry.harness}/${entry.name}`).sort(), [
     'claude/local', 'claude/remote', 'codex/docs', 'codex/quoted-name',
@@ -105,7 +107,7 @@ test('server entries come from both harnesses and skip disabled ones', () => {
 
 test('dry run states exactly what would be executed and hides env values', () => {
   const home = fixtureHome();
-  write(home, '.claude/mcp.json', JSON.stringify({
+  write(home, '.claude.json', JSON.stringify({
     mcpServers: {
       local: { command: 'node', args: ['server.js'], env: { TOKEN: 'SECRET VALUE' } },
       remote: { url: 'https://example.test/mcp' },
@@ -123,7 +125,7 @@ test('dry run states exactly what would be executed and hides env values', () =>
 test('measuring a live stdio server returns tool count and schema size only', async () => {
   const home = fixtureHome();
   const scriptPath = fakeServer(home, 'fixture', 12);
-  write(home, '.claude/mcp.json', JSON.stringify({
+  write(home, '.claude.json', JSON.stringify({
     mcpServers: { fixture: { command: process.execPath, args: [scriptPath] } },
   }));
 
@@ -145,7 +147,7 @@ test('measuring a live stdio server returns tool count and schema size only', as
 test('a server that never answers is timed out and reported, not fatal', async () => {
   const home = fixtureHome();
   write(home, 'servers/silent.js', 'setInterval(() => {}, 1000);');
-  write(home, '.claude/mcp.json', JSON.stringify({
+  write(home, '.claude.json', JSON.stringify({
     mcpServers: {
       silent: { command: process.execPath, args: [path.join(home, 'servers/silent.js')] },
       missing: { command: path.join(home, 'no-such-binary'), args: [] },
@@ -163,7 +165,7 @@ test('a server that never answers is timed out and reported, not fatal', async (
 
 test('remote servers are skipped unless the caller opts into network calls', async () => {
   const home = fixtureHome();
-  write(home, '.claude/mcp.json', JSON.stringify({
+  write(home, '.claude.json', JSON.stringify({
     mcpServers: { remote: { url: 'https://example.invalid/mcp', type: 'http' } },
   }));
 
@@ -267,7 +269,7 @@ process.stdin.on('data', () => {});
 const chunk = 'x'.repeat(64 * 1024);
 setInterval(() => process.stdout.write(chunk), 1);
 `);
-  write(home, '.claude/mcp.json', JSON.stringify({
+  write(home, '.claude.json', JSON.stringify({
     mcpServers: { flood: { command: process.execPath, args: [path.join(home, 'servers/flood.js')] } },
   }));
 
@@ -328,7 +330,7 @@ test('Kiro MCP servers are measured rather than left invisible', () => {
 test('all three harnesses contribute to one server list', () => {
   // Arrange
   const home = fixtureHome();
-  write(home, '.claude/mcp.json', JSON.stringify({ mcpServers: { 'claude-one': { command: 'node' } } }));
+  write(home, '.claude.json', JSON.stringify({ mcpServers: { 'claude-one': { command: 'node' } } }));
   write(home, '.codex/config.toml', '[mcp_servers.codex-one]\ncommand = "node"\n');
   write(home, '.kiro/settings/mcp.json', JSON.stringify({ mcpServers: { 'kiro-one': { command: 'node' } } }));
 

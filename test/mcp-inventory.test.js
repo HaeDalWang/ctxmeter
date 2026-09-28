@@ -20,17 +20,19 @@ function write(root, relativePath, content) {
 // A server the user switched off contributes nothing to the prompt, so counting
 // it as unmeasured overstates what is unknown.
 test('a disabled Claude server is not counted as configured', () => {
-  // Arrange
+  // Arrange: Claude's per-project /mcp toggle records the name in disabledMcpServers.
   const home = fixtureHome();
-  write(home, '.claude/mcp.json', JSON.stringify({
+  const workspace = fixtureHome();
+  write(home, '.claude.json', JSON.stringify({
     mcpServers: {
       on: { command: 'node' },
-      off: { command: 'node', disabled: true },
+      off: { command: 'node' },
     },
+    projects: { [workspace]: { disabledMcpServers: ['off'] } },
   }));
 
   // Act
-  const snapshot = scanEnvironment({ home, workspace: fixtureHome() });
+  const snapshot = scanEnvironment({ home, workspace });
 
   // Assert
   assert.equal(snapshot.harnesses.claude.configuredMcpServerCount, 1);

@@ -13,6 +13,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
+const { claudeMcpServers } = require('./claude-mcp');
 
 const PROTOCOL_VERSION = '2025-06-18';
 // A misbehaving server must not be able to exhaust our memory.
@@ -43,30 +44,30 @@ function readJson(file) {
   }
 }
 
-/// Claude and Kiro both use `mcpServers` with a `disabled` flag, so one reader
-/// serves both. Only the file location and the harness label differ.
-function jsonEntries(harness, file) {
-  const config = readJson(file);
+function toEntry(harness, name, value) {
+  return {
+    harness,
+    name,
+    transport: value.command ? 'stdio' : 'http',
+    command: value.command || null,
+    args: Array.isArray(value.args) ? value.args : [],
+    envKeys: Object.keys(value.env || {}),
+    env: value.env || {},
+    url: value.url || null,
+  };
+}
+
+/// Kiro uses `mcpServers` with a `disabled` flag in one file.
+function kiroEntries(home) {
+  const config = readJson(path.join(home, '.kiro', 'settings', 'mcp.json'));
   return Object.entries(config?.mcpServers || {})
     .filter(([, value]) => value && value.disabled !== true)
-    .map(([name, value]) => ({
-      harness,
-      name,
-      transport: value.command ? 'stdio' : 'http',
-      command: value.command || null,
-      args: Array.isArray(value.args) ? value.args : [],
-      envKeys: Object.keys(value.env || {}),
-      env: value.env || {},
-      url: value.url || null,
-    }));
+    .map(([name, value]) => toEntry('kiro', name, value));
 }
 
-function claudeEntries(home) {
-  return jsonEntries('claude', path.join(home, '.claude', 'mcp.json'));
-}
-
-function kiroEntries(home) {
-  return jsonEntries('kiro', path.join(home, '.kiro', 'settings', 'mcp.json'));
+/// Claude spreads servers across scopes; claude-mcp.js decides which load.
+function claudeEntries(home, workspace) {
+  return claudeMcpServers(home, workspace).map((server) => toEntry('claude', server.name, server.config));
 }
 
 /// The value part of `key = value`, without quotes or a trailing `# comment`.
@@ -127,8 +128,9 @@ function codexEntries(home) {
   return [...entries.values()].filter((entry) => entry.enabled !== false);
 }
 
-function mcpServerEntries(home) {
-  return [...claudeEntries(home), ...codexEntries(home), ...kiroEntries(home)];
+/// Claude's local and project scopes depend on the workspace; the others do not.
+function mcpServerEntries(home, workspace = process.cwd()) {
+  return [...claudeEntries(home, workspace), ...codexEntries(home), ...kiroEntries(home)];
 }
 
 /// Shown before anything is executed so the user can inspect and refuse.

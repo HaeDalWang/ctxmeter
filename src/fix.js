@@ -13,9 +13,13 @@ const { setJsonServerDisabled, setTomlSectionKey } = require('./config-edit');
 const { MEASURED_STATUS } = require('./mcp-cost');
 
 const JSON_LOCATIONS = {
-  claude: ['.claude', 'mcp.json'],
   kiro: ['.kiro', 'settings', 'mcp.json'],
 };
+
+// Claude's off switch is projects[<workspace>].disabledMcpServers in
+// ~/.claude.json, a large file Claude rewrites while it runs. A concurrent write
+// could lose the change or the file, so ctxmeter names the switch instead.
+const CLAUDE_INSTRUCTION = 'switch it off in Claude Code: run /mcp and disable it (applies to this project)';
 
 function integer(value) {
   return Number(value || 0).toLocaleString('en-US');
@@ -39,6 +43,7 @@ function mcpProposal(home, server) {
     const key = /^[A-Za-z0-9_-]+$/.test(server.name) ? server.name : `"${server.name}"`;
     return { ...base, file: path.join(home, '.codex', 'config.toml'), format: 'toml', section: `mcp_servers.${key}` };
   }
+  if (server.harness === 'claude') return { ...base, file: null, format: 'manual', instruction: CLAUDE_INSTRUCTION };
   const location = JSON_LOCATIONS[server.harness];
   if (!location) return null;
   return { ...base, file: path.join(home, ...location), format: 'json' };
@@ -72,12 +77,13 @@ function fixProposals({ home, snapshot, mcpCost }) {
     .filter(Boolean);
 
   return [...servers, ...pluginProposals(home, snapshot?.harnesses?.codex)]
-    .filter((proposal) => fs.existsSync(proposal.file))
+    .filter((proposal) => proposal.format === 'manual' || fs.existsSync(proposal.file))
     .sort((left, right) => right.tokens - left.tokens);
 }
 
 /// Computes the edit without touching the file, so the caller can show it first.
 function planProposal(proposal) {
+  if (proposal.format === 'manual') throw new Error(`ctxmeter does not edit this one; ${proposal.instruction}.`);
   const before = fs.readFileSync(proposal.file, 'utf8');
   const result = proposal.format === 'toml'
     ? setTomlSectionKey(before, proposal.section, 'enabled', 'false')
@@ -139,12 +145,21 @@ function formatProposals(proposals) {
   for (const proposal of proposals) {
     const detail = proposal.detail ? `, ${proposal.detail}` : '';
     lines.push(`  ${integer(proposal.tokens).padStart(8)}  ${proposal.target}${detail}`);
+    if (proposal.format === 'manual') {
+      lines.push(`            ${proposal.instruction}`);
+      continue;
+    }
     lines.push(`            ${proposal.format === 'toml' ? `[${proposal.section}]` : `"${proposal.name}"`} in ${proposal.file}`);
   }
 
+  const applicable = proposals.find((proposal) => proposal.format !== 'manual');
   lines.push('');
+  if (!applicable) {
+    lines.push('Nothing has been changed. These are switched off inside the agent itself.');
+    return lines.join('\n');
+  }
   lines.push('Nothing has been changed. To switch one off:');
-  lines.push(`  ctxmeter fix --apply ${proposals[0].target}`);
+  lines.push(`  ctxmeter fix --apply ${applicable.target}`);
   lines.push('');
   lines.push('A backup is written next to the file and the undo command is printed.');
   return lines.join('\n');

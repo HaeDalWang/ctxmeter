@@ -170,7 +170,8 @@ const CONSENT_FLAG = '--i-understand-this-launches-servers';
 
 async function runMcpScan(options) {
   const home = options.home || os.homedir();
-  const entries = mcpServerEntries(home);
+  const workspace = path.resolve(options.workspace || process.cwd());
+  const entries = mcpServerEntries(home, workspace);
   if (options['dry-run']) return { summary: describeDryRun(entries) };
   if (!options[CONSENT_FLAG.slice(2)]) {
     throw new Error([
@@ -198,7 +199,6 @@ async function runMcpScan(options) {
   } finally {
     status.clear();
   }
-  const workspace = path.resolve(options.workspace || process.cwd());
   const cacheFile = mcpCachePath(workspace);
   fs.mkdirSync(path.dirname(cacheFile), { recursive: true });
   fs.writeFileSync(cacheFile, `${JSON.stringify(result, null, 2)}\n`);

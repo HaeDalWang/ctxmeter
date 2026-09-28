@@ -97,7 +97,6 @@ test('skips servers that failed to measure, since their cost is unknown', () => 
 test('points each harness at its own file and format', () => {
   // Arrange
   const home = fixtureHome();
-  write(home, '.claude/mcp.json', JSON.stringify({ mcpServers: { c: { command: 'a' } } }, null, 2));
   write(home, '.kiro/settings/mcp.json', JSON.stringify({ mcpServers: { k: { command: 'a' } } }, null, 2));
   write(home, '.codex/config.toml', '[mcp_servers.x]\ncommand = "a"\n');
   const mcpCost = mcpCostFor(home, [
@@ -111,8 +110,10 @@ test('points each harness at its own file and format', () => {
     .map((proposal) => [proposal.target, proposal]));
 
   // Assert
-  assert.equal(byTarget['claude/c'].format, 'json');
-  assert.equal(byTarget['claude/c'].file, path.join(home, '.claude', 'mcp.json'));
+  // Claude's off switch lives in ~/.claude.json, which Claude rewrites while it
+  // runs, so ctxmeter points at /mcp instead of editing it.
+  assert.equal(byTarget['claude/c'].format, 'manual');
+  assert.equal(byTarget['claude/c'].file, null);
   assert.equal(byTarget['kiro/k'].format, 'json');
   assert.equal(byTarget['kiro/k'].file, path.join(home, '.kiro', 'settings', 'mcp.json'));
   assert.equal(byTarget['codex/x'].format, 'toml');
@@ -252,4 +253,47 @@ test('a Codex server whose name needs quoting is found under its quoted header',
   assert.equal(proposal.section, 'mcp_servers."docs.search"');
   assert.equal(plan.changed, true);
   assert.match(plan.after, /\[mcp_servers\."docs\.search"\]\nenabled = false\n/);
+});
+
+
+test('a Claude server is listed with the /mcp instruction, and the example apply names a file target', () => {
+  // Arrange
+  const home = fixtureHome();
+  write(home, '.codex/config.toml', '[mcp_servers.x]\ncommand = "a"\n');
+  const mcpCost = mcpCostFor(home, [
+    { harness: 'claude', name: 'big', status: MEASURED_STATUS, toolCount: 9, estimatedTokens: 9000 },
+    { harness: 'codex', name: 'x', status: MEASURED_STATUS, toolCount: 1, estimatedTokens: 100 },
+  ]);
+
+  // Act
+  const text = formatProposals(fixProposals({ home, snapshot: snapshotFor(home), mcpCost }));
+
+  // Assert
+  assert.match(text, /claude\/big/);
+  assert.match(text, /\/mcp/);
+  assert.match(text, /ctxmeter fix --apply codex\/x/);
+  assert.doesNotMatch(text, /--apply claude\/big/);
+});
+
+test('with only Claude servers the dry run does not suggest an --apply that cannot work', () => {
+  // Arrange
+  const home = fixtureHome();
+  const mcpCost = mcpCostFor(home, [{ harness: 'claude', name: 'big', status: MEASURED_STATUS, toolCount: 9, estimatedTokens: 9000 }]);
+
+  // Act
+  const text = formatProposals(fixProposals({ home, snapshot: snapshotFor(home), mcpCost }));
+
+  // Assert
+  assert.match(text, /\/mcp/);
+  assert.doesNotMatch(text, /--apply/);
+});
+
+test('planning a Claude proposal is refused with the instruction instead of writing', () => {
+  // Arrange
+  const home = fixtureHome();
+  const mcpCost = mcpCostFor(home, [{ harness: 'claude', name: 'big', status: MEASURED_STATUS, toolCount: 9, estimatedTokens: 9000 }]);
+  const [proposal] = fixProposals({ home, snapshot: snapshotFor(home), mcpCost });
+
+  // Act + Assert
+  assert.throws(() => planProposal(proposal), /\/mcp/);
 });
