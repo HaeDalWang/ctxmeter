@@ -1,8 +1,8 @@
 {
   "name": "ctxmeter",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": false,
-  "description": "See what your AI coding agent loads into context before you type anything. Local, read-only, no account.",
+  "description": "See what your AI coding agent loads into context before you type, and switch off what you pick. Claude Code, Codex, Kiro. Local, no account.",
   "license": "MIT",
   "homepage": "https://github.com/HaeDalWang/ctxmeter",
   "repository": {
@@ -34,7 +34,11 @@
     "mcp",
     "tokens",
     "observability",
-    "cli"
+    "cli",
+    "claude",
+    "ai-agents",
+    "context-engineering",
+    "developer-tools"
   ],
   "scripts": {
     "audit": "node src/cli.js audit",
@@ -42,6 +46,10 @@
     "telemetry": "node src/cli.js telemetry",
     "test": "node --test",
     "test:coverage": "node --test --experimental-test-coverage",
-    "demo": "./scripts/build-demo.sh"
+    "demo": "./scripts/build-demo.sh",
+    "prepublishOnly": "node --test"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

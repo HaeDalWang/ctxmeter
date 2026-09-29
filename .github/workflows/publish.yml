@@ -1,0 +1,37 @@
+name: Publish to npm
+
+# Runs on a version tag. Authenticates with npm trusted publishing (OIDC), so
+# there is no npm token in this repository; provenance is attached automatically.
+# One-time setup on npmjs.com: package ctxmeter → Settings → Trusted publisher →
+# GitHub Actions, HaeDalWang / ctxmeter / publish.yml.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  id-token: write # OIDC for npm
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          # npm 11.5.1+ is required for trusted publishing; Node 24 ships it.
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+      - name: Tag must equal the package version
+        run: test "${GITHUB_REF_NAME}" = "v$(node -p "require('./package.json').version")"
+      - run: node --test
+      - run: ./scripts/verify-package.sh
+      - name: Skip if this version is already on npm
+        id: exists
+        run: |
+          if npm view "ctxmeter@$(node -p "require('./package.json').version")" version >/dev/null 2>&1; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.exists.outputs.published != 'true'
+        run: npm publish

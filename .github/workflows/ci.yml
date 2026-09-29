@@ -20,6 +20,8 @@ jobs:
           RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
       - name: Audit runs on a machine with no agent configuration
         run: node src/cli.js audit --home "$(mktemp -d)"
+      - name: The packed tarball installs and runs
+        run: ./scripts/verify-package.sh
 
   swift:
     runs-on: macos-15
