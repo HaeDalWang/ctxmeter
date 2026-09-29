@@ -25,6 +25,8 @@ npm cannot configure a trusted publisher for a package that does not exist yet (
 - Tag `v0.1.1`: CI green; the publish workflow ran and skipped `npm publish` because 0.1.1 was already on npm (as designed). Release: https://github.com/HaeDalWang/ctxmeter/releases/tag/v0.1.1
 - GitHub description no longer says "read-only"; homepage points to the npm page.
 
-## Still owed
+## Trusted publisher — linked
 
-- Trusted publisher link: `npm trust github ctxmeter --file publish.yml --repo HaeDalWang/ctxmeter` needs 2FA, so the owner runs it. npm 11.11 does not know `--allow-publish`; publish permission is the default there. Until it is linked, a future tag's publish step fails with ENEEDAUTH rather than publishing.
+- `npm trust list ctxmeter` (via `npx npm@12`): `type: github`, `file: publish.yml`, `repository: HaeDalWang/ctxmeter`, `permissions: publish, stage publish` (confirmed).
+- How it got there is unclear: npm 11.11 returned 400 twice, and npm 12's attempt returned 409 "already exists". One of the 400s (or a web-UI step) most likely created it. The result is correct either way.
+- Not yet exercised: the first CI publish happens on the next version tag. If it fails, the log names the claim that did not match.
