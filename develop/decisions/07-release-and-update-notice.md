@@ -12,7 +12,7 @@
 
 - **Prebuilt .app / DMG.** No Developer ID here, so a downloaded ad-hoc build hits Gatekeeper ("damaged"), needs `xattr` instructions, and carries the builder's `AGLDefaultWorkspace`. A local build has none of those problems.
 - **Auto-update (Sparkle etc.).** Needs signing and an appcast; out of proportion for a handful of colleagues.
-- **npm publish.** Irreversible and needs an account; not needed while `npx github:` works. Can be done later.
+- ~~**npm publish.** Irreversible and needs an account; not needed while `npx github:` works.~~ Reversed 2026-09-29 by the owner: see `execution/10-npm-launch.md`.
 
 ## Risks accepted
 

@@ -6,13 +6,14 @@
 
 <p align="center">
   <a href="LICENSE"><img alt="MIT" src="https://img.shields.io/badge/license-MIT-6e5aff?style=flat-square"></a>
+  <a href="https://www.npmjs.com/package/ctxmeter"><img alt="npm" src="https://img.shields.io/npm/v/ctxmeter?style=flat-square&color=cb3837"></a>
   <img alt="Node 20+" src="https://img.shields.io/badge/node-20%2B-1f9d55?style=flat-square">
   <img alt="no telemetry" src="https://img.shields.io/badge/telemetry-none-0a0a0c?style=flat-square">
   <img alt="Claude Code, Codex, Kiro" src="https://img.shields.io/badge/agents-Claude%20Code%20%7C%20Codex%20%7C%20Kiro-2ec7b6?style=flat-square">
 </p>
 
 ```bash
-npx github:HaeDalWang/ctxmeter
+npx ctxmeter
 ```
 
 <p align="center"><img src="docs/demo.gif" alt="ctxmeter audit output showing 33,458 tokens of startup cost across Kiro, Claude Code, and Codex" width="760"></p>
@@ -21,11 +22,11 @@ Skills, rule files, steering docs, hooks, and MCP servers all load at session st
 
 ## Quickstart
 
-ctxmeter is not on npm; `npx github:HaeDalWang/ctxmeter` runs it straight from this repository (Node 20+). Below, `ctxmeter` stands for that, or for `node src/cli.js` inside a clone.
+Node 20+. `npx ctxmeter` runs the latest release with nothing installed; `npm i -g ctxmeter` keeps it on your PATH. Below, `ctxmeter` stands for either.
 
 ```bash
 # 1. What does my setup cost right now?
-npx github:HaeDalWang/ctxmeter
+npx ctxmeter
 
 # 2. Include MCP tool schemas, the biggest and least visible cost.
 #    This one starts your servers, so it is opt-in. See what it would run first:

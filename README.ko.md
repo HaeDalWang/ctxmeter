@@ -6,13 +6,14 @@
 
 <p align="center">
   <a href="LICENSE"><img alt="MIT" src="https://img.shields.io/badge/license-MIT-6e5aff?style=flat-square"></a>
+  <a href="https://www.npmjs.com/package/ctxmeter"><img alt="npm" src="https://img.shields.io/npm/v/ctxmeter?style=flat-square&color=cb3837"></a>
   <img alt="Node 20+" src="https://img.shields.io/badge/node-20%2B-1f9d55?style=flat-square">
   <img alt="no telemetry" src="https://img.shields.io/badge/telemetry-none-0a0a0c?style=flat-square">
   <img alt="Claude Code, Codex, Kiro" src="https://img.shields.io/badge/agents-Claude%20Code%20%7C%20Codex%20%7C%20Kiro-2ec7b6?style=flat-square">
 </p>
 
 ```bash
-npx github:HaeDalWang/ctxmeter
+npx ctxmeter
 ```
 
 <p align="center"><img src="docs/demo.gif" alt="Kiro, Claude Code, Codex의 시작 비용 33,458 토큰을 보여주는 ctxmeter audit 출력" width="760"></p>
@@ -21,11 +22,11 @@ npx github:HaeDalWang/ctxmeter
 
 ## 빠른 시작
 
-ctxmeter는 npm에 없습니다. `npx github:HaeDalWang/ctxmeter`로 이 저장소에서 바로 실행합니다(Node 20+). 아래의 `ctxmeter`는 이 명령, 또는 클론한 폴더 안의 `node src/cli.js`를 뜻합니다.
+Node 20+. `npx ctxmeter`는 설치 없이 최신 릴리즈를 실행하고, `npm i -g ctxmeter`로 PATH에 둘 수도 있습니다. 아래의 `ctxmeter`는 둘 중 어느 쪽이든 뜻합니다.
 
 ```bash
 # 1. 지금 내 설정이 얼마나 먹고 있나?
-npx github:HaeDalWang/ctxmeter
+npx ctxmeter
 
 # 2. MCP 도구 스키마까지 포함 — 가장 크고 가장 안 보이는 비용.
 #    서버를 실제로 띄우므로 명시적으로 켜야 합니다. 먼저 무엇을 띄울지 확인:
