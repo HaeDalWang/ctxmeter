@@ -38,3 +38,12 @@ Node 175 pass (new: `tool-loading`, `deferred-mcp`, `baseline`). Swift 50 pass (
 - Codex deferral against a running Codex (source reading only).
 - Kiro deferral (unknown).
 - Claude's `auto:N` threshold is compared against Claude's MCP total only; whether Claude counts anything else toward it is unknown.
+
+
+## Release v0.1.2 (2026-10-01)
+
+- `package.json` and `Info.plist` 0.1.2; `RELEASE_TAG=v0.1.2 node --test` 176/176 (the version test no longer skips); `verify-package` ok, 136 KB.
+- Tag `v0.1.2` pushed. First run of the CI publish path: tag check, tests, package check, then `npm publish` with trusted publishing — `+ ctxmeter@0.1.2`, provenance signed and logged to sigstore (logIndex 3028417855). No token involved (confirmed from the workflow log).
+- The registry showed 0.1.2 about 4 minutes after publish ("being processed"). Then: `dist-tags.latest` 0.1.2, SLSA provenance attestation present, `npx -y ctxmeter@latest --version` → 0.1.2 from an empty dir (confirmed).
+- GitHub release v0.1.2 created; `releases/latest` → v0.1.2, not draft, not prerelease (confirmed).
+- Update banner: the installed app was 0.1.0; relaunched to trigger the launch check. Whether the banner appears is for the owner to look at — not seen by the agent.
