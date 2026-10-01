@@ -47,6 +47,22 @@ Codex plugin groups use `[plugins."<name>@<marketplace>"]` with `enabled = true`
 
 A server that is switched off is never started by `mcp-scan`, never counted toward the configured total, and never offered by `fix`. It contributes nothing to the prompt, so reporting it as unmeasured would overstate how much of the setup is unknown.
 
+## Loaded or deferred
+
+An enabled server is not necessarily in the startup prompt. `src/tool-loading.js` decides, per server and at read time (not stored in the cache, because the settings can change after a scan):
+
+| Harness | Mode | Source |
+|---|---|---|
+| Claude Code | deferred by default; upfront when `alwaysLoad: true` is on the server, `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS` is set, `ENABLE_TOOL_SEARCH=false`, `ANTHROPIC_BASE_URL` is not `api.anthropic.com`, or `ENABLE_TOOL_SEARCH=auto[:N]` and the Claude MCP total is at most N% (default 10) of the window | [tool search docs](https://code.claude.com/docs/en/agent-sdk/tool-search) |
+| Codex | always deferred | `codex-rs/features/src/lib.rs` |
+| Kiro | counted as loaded | nothing documents deferral |
+
+Claude's env is the shell's, overlaid by `env` in `~/.claude/settings.json`, `<workspace>/.claude/settings.json`, and `settings.local.json`. `auto` with an unknown window counts as loaded. A deferred server reports `tokens: null` and `deferredTokens` in `details`, is listed with `— deferred` by `mcp-scan`, appears as one "load only on use" line in the audit, and is not offered by `fix`.
+
+## Observed session start
+
+The audit's first line is measured, not estimated: the input context of the first request in each of the last 10 sessions per agent (`BASELINE_SESSIONS` in `src/session-history.js`), skipping sessions whose first request follows a compaction. Lowest, median, and latest are kept; the audit prints the lowest. It includes the agent's built-in prompt and tools and the first user message, which is why it is larger than the estimate of your setup. Kiro records a percentage only, so its value stays a percentage. Without session logs the headline falls back to the estimate.
+
 ## fix
 
 `ctxmeter fix` lists switches that would free measured tokens, ranked by saving. It writes nothing. `--apply <target>` flips exactly one, after copying the file to `<name>.ctxmeter-<timestamp>.bak` in the same directory and printing a `cp` command that restores it.

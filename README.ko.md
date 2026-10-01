@@ -16,7 +16,7 @@
 npx ctxmeter
 ```
 
-<p align="center"><img src="docs/demo.gif" alt="Kiro, Claude Code, Codex의 시작 비용 33,458 토큰을 보여주는 ctxmeter audit 출력" width="760"></p>
+<p align="center"><img src="docs/demo.gif" alt="ctxmeter audit 출력: 세션 기록상 Claude Code는 69,435 토큰, Codex는 17,268 토큰에서 시작하고, 그중 내 설정의 몫을 에이전트별로 순위 매김" width="760"></p>
 
 스킬, 규칙 파일, steering 문서, 훅, MCP 서버는 모두 세션 시작 때 로드됩니다. 보통은 컴팩션이 터지고 나서야 알게 됩니다. 명령 하나, 설정 없음, 계정 없음, 아무것도 밖으로 나가지 않습니다.
 
@@ -28,14 +28,14 @@ Node 20+. `npx ctxmeter`는 설치 없이 최신 릴리즈를 실행하고, `npm
 # 1. 지금 내 설정이 얼마나 먹고 있나?
 npx ctxmeter
 
-# 2. MCP 도구 스키마까지 포함 — 가장 크고 가장 안 보이는 비용.
+# 2. MCP 도구 스키마까지 포함 — 로컬 파일로는 안 보이는 비용.
 #    서버를 실제로 띄우므로 명시적으로 켜야 합니다. 먼저 무엇을 띄울지 확인:
 ctxmeter mcp-scan --dry-run
 ctxmeter mcp-scan --i-understand-this-launches-servers
 
 # 3. 비싼 것부터 끄기. 먼저 dry run; --disable은 백업하고 되돌리는 명령을 출력합니다.
 ctxmeter fix
-ctxmeter fix --disable codex/code-review-graph   # --enable로 다시 켜기
+ctxmeter fix --disable kiro/playwright           # --enable로 다시 켜기
 
 # 나머지
 ctxmeter --help
@@ -68,7 +68,9 @@ git clone https://github.com/HaeDalWang/ctxmeter.git && cd ctxmeter
 
 ## 아무도 재지 않는 MCP 측정
 
-MCP 도구 스키마는 보고된 비용 중 가장 크고, **실제 프롬프트 안에만** 존재합니다 — 로컬 파일 어디에도 없습니다. 그래서 정직하게 재려면 각 서버를 띄워서 물어봐야 합니다.
+MCP 도구 스키마는 **실제 프롬프트 안에만** 존재합니다 — 로컬 파일 어디에도 없습니다. 그래서 정직하게 재려면 각 서버를 띄워서 물어봐야 합니다.
+
+시작 비용이 되는지는 에이전트마다 다릅니다. Claude Code와 Codex는 기본적으로 MCP 도구를 tool search 뒤에 두고, 모델이 찾을 때만 스키마를 로드합니다. Kiro는 이런 지연 로딩을 문서화하지 않았으므로 ctxmeter는 로드된 것으로 셉니다. Claude는 `ENABLE_TOOL_SEARCH=false`, 서드파티 프록시를 가리키는 `ANTHROPIC_BASE_URL`, `alwaysLoad`로 표시한 서버가 있으면 다시 전부 미리 로드합니다. ctxmeter는 이 설정을 읽어 로드분과 지연분을 따로 보고합니다.
 
 읽기 전용 약속과 충돌하므로 명시적 플래그가 필요한 별도 명령입니다.
 
@@ -78,18 +80,18 @@ ctxmeter mcp-scan --i-understand-this-launches-servers
 ```
 
 ```
-MCP tool schemas cost 17,877 tokens across 78 tools.
+MCP tool schemas: 8,914 tokens load at startup; 8,963 more load only when a tool is used.
 
-  codex/code-review-graph: 7,298 tokens, 30 tools
+  codex/code-review-graph: 7,298 tokens, 30 tools — deferred
   kiro/playwright: 4,352 tokens, 25 tools
   kiro/aws-mcp: 2,892 tokens, 8 tools
   kiro/context7: 1,148 tokens, 2 tools
-  codex/shadcn: 1,124 tokens, 7 tools
-  codex/node_repl: 541 tokens, 4 tools
+  codex/shadcn: 1,124 tokens, 7 tools — deferred
+  codex/node_repl: 541 tokens, 4 tools — deferred
   kiro/exa: 522 tokens, 2 tools
 ```
 
-서버별 타임아웃과 강제 종료, 원격 서버는 명시하지 않으면 건너뜀, 스키마는 개수를 센 뒤 버립니다. 꺼 둔 서버는 절대 띄우지 않습니다. 결과는 캐시되어 `ctxmeter` 점검에 합쳐집니다.
+서버별 타임아웃과 강제 종료, 원격 서버는 명시하지 않으면 건너뜀, 스키마는 개수를 센 뒤 버립니다. 꺼 둔 서버는 절대 띄우지 않습니다. 결과는 캐시되어 `ctxmeter` 점검에 합쳐집니다. 지연 로드되는 서버는 목록에는 나오지만 `fix`가 제안하지 않습니다. 꺼도 시작 비용이 거의 줄지 않기 때문입니다.
 
 ## 그다음, 비싼 것 끄기
 
@@ -97,14 +99,12 @@ MCP tool schemas cost 17,877 tokens across 78 tools.
 
 ```bash
 ctxmeter fix                                  # dry run, 아무것도 바꾸지 않음
-ctxmeter fix --disable codex/code-review-graph  # 한 번에 하나씩
+ctxmeter fix --disable kiro/playwright         # 한 번에 하나씩
 ```
 
 ```
-20,747 tokens sit behind 12 switches you can flip.
+13,262 tokens sit behind 11 switches you can flip.
 
-     7,298  codex/code-review-graph, 30 tools
-            [mcp_servers.code-review-graph] in ~/.codex/config.toml
      4,352  kiro/playwright, 25 tools
             "playwright" in ~/.kiro/settings/mcp.json
      2,892  kiro/aws-mcp, 8 tools
@@ -114,7 +114,7 @@ ctxmeter fix --disable codex/code-review-graph  # 한 번에 하나씩
        ...
 
 Nothing has been changed. To switch one off:
-  ctxmeter fix --disable codex/code-review-graph
+  ctxmeter fix --disable kiro/playwright
 ```
 
 Claude 플러그인은 `~/.claude/settings.json`의 `enabledPlugins`로 켜고 끕니다. Claude MCP 서버는 대상 대신 `/mcp` 안내로 표시됩니다. 끄는 스위치가 `~/.claude.json`에 있는데, Claude가 실행 중에 이 파일을 다시 쓰기 때문에 ctxmeter는 건드리지 않습니다.
@@ -122,7 +122,7 @@ Claude 플러그인은 `~/.claude/settings.json`의 `enabledPlugins`로 켜고 �
 적용하면 원본 옆에 백업을 쓰고 되돌리는 명령을 출력합니다.
 
 ```
-Switched off codex/code-review-graph, freeing about 7,298 tokens at startup.
+Switched off codex/plugin:ponytail@ponytail, freeing about 739 tokens at startup.
 
   changed  ~/.codex/config.toml
   backup   ~/.codex/config.toml.ctxmeter-2026-09-24T13-43-48-623Z.bak
@@ -172,6 +172,8 @@ Swift와 SwiftPM만 필요하고 Xcode 전체는 필요 없습니다. 에이전�
 ## 알려줄 수 없는 것
 
 **정적 수치는 바이트 ÷ 4입니다.** 토크나이저가 아니라 근사치입니다. Claude와 Codex의 세션 합계는 정확히 관측한 값이고, Kiro는 퍼센트만 기록하므로 토큰 수를 만들어내지 않습니다.
+
+**관측한 세션 시작값에는 첫 메시지가 포함됩니다.** 최근 10개 세션의 첫 요청 컨텍스트 중 가장 낮은 값이며, 컴팩션 직후 열린 세션은 건너뜁니다. 이 값과 내 설정 추정치의 차이는 에이전트 자체의 시스템 프롬프트와 도구, 그리고 그 메시지입니다.
 
 **훅 출력은 잴 수 없습니다.** 크기가 훅이 실행 중에 무엇을 출력하느냐에 달려 있습니다.
 

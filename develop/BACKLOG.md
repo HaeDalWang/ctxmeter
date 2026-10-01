@@ -14,7 +14,7 @@
 
 ## P0 — 신뢰와 첫 화면 (런칭 전에 반드시)
 
-### P0-1. MCP 지연 로딩 반영 · M
+### P0-1. MCP 지연 로딩 반영 · M · ✅ 완료 (2026-09-28, `execution/11`)
 - **문제**: `mcp-scan`/`audit`가 스키마 전체를 시작 비용으로 센다. Claude(tool search 기본 on)와 Codex(지원 서버에서 기본 적용)는 이름만 올리고 나머지는 필요할 때 불러온다. 지금 코드에는 이를 다루는 부분이 없다(`src/`에 `defer`/`ENABLE_TOOL_SEARCH` 없음, confirmed).
 - **할 일**: 하네스별로 로딩 모드를 판정한다.
   - Claude: `ENABLE_TOOL_SEARCH`, `ANTHROPIC_BASE_URL`, 서버별 `alwaysLoad`.
@@ -24,13 +24,13 @@
 - **완료 기준**: 이 머신에서 audit 합계가 실측(P0-2)과 설명 가능한 범위로 맞는다. README 수치도 갱신한다.
 - **왜 P0**: HN 첫 댓글이 "Claude는 이미 MCP를 지연 로딩하는데?"가 될 것이다. 런칭은 한 번뿐이다.
 
-### P0-2. 실측 시작 비용 (observed baseline) · M
+### P0-2. 실측 시작 비용 (observed baseline) · M · ✅ 완료 (2026-09-28, `execution/11`, 헤드라인은 중앙값이 아니라 최저값)
 - **발상**: Claude·Codex 로그에는 각 세션 **첫 턴 입력 토큰**이 정확히 남는다. 이것이 추정이 아니라 실제 "타이핑 전 비용"이다. `session-history.js`가 이미 턴별 usage를 읽고 있다.
 - **할 일**: 최근 N개 세션의 첫 턴 입력 토큰 중앙값을 하네스별로 낸다. audit 첫 줄을 "추정 33,458"에서 **"실측: 최근 10세션 중앙값 41,2xx 토큰(Claude)"**로 바꾼다. 추정 내역은 그 아래 "이 중 설명되는 부분"으로 둔다. Kiro는 퍼센트만 표시한다.
 - **완료 기준**: 실측과 추정의 차이(시스템 프롬프트·내장 도구 몫)가 한 줄로 설명된다.
 - **왜 P0**: 경쟁 도구 대부분이 추정만 한다. "실측"은 반박이 어렵고 공유할 만한 숫자다.
 
-### P0-3. `npx ctxmeter` 한 줄 설치 (npm 게시) · S · 사용자 결정
+### P0-3. `npx ctxmeter` 한 줄 설치 (npm 게시) · S · ✅ 완료 (v0.1.1, `execution/10`)
 - 이름은 비어 있다(confirmed). `npx github:...`는 동작하지만 길고, 처음 실행할 때 git clone이 일어나 느리다.
 - 되돌리기 어렵고(72시간 뒤에는 unpublish 불가) npm 계정이 필요하다 → **사용자 결정**.
 - 태그 push 시 CI에서 `npm publish --provenance`로 게시하도록 자동화한다.
@@ -38,7 +38,7 @@
 ### P0-4. 저장소 첫인상 정리 · S
 - GitHub description의 "read-only"를 고친다(`fix`와 스위치가 생겨 사실이 아님).
 - homepage 필드와 social preview 이미지(1280×640)를 넣는다. 트위터·슬랙에 링크를 붙였을 때 보이는 카드다.
-- README 첫 화면을 P0-2의 실측 한 줄과 데모 GIF 재녹화로 바꾼다.
+- ~~README 첫 화면을 P0-2의 실측 한 줄과 데모 GIF 재녹화로 바꾼다.~~ 완료(`execution/11`).
 
 ### P0-5. 남은 측정 공백 · M
 - 원격 MCP의 `headers`(Authorization)를 전달하지 않는다.

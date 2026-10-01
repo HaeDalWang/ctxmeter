@@ -16,7 +16,7 @@
 npx ctxmeter
 ```
 
-<p align="center"><img src="docs/demo.gif" alt="ctxmeter audit output showing 33,458 tokens of startup cost across Kiro, Claude Code, and Codex" width="760"></p>
+<p align="center"><img src="docs/demo.gif" alt="ctxmeter audit output: sessions observed to start at 69,435 tokens in Claude Code and 17,268 in Codex, with the setup's share ranked per agent" width="760"></p>
 
 Skills, rule files, steering docs, hooks, and MCP servers all load at session start. You find out when compaction hits. One command, no config, no account, nothing leaves your machine.
 
@@ -28,14 +28,14 @@ Node 20+. `npx ctxmeter` runs the latest release with nothing installed; `npm i 
 # 1. What does my setup cost right now?
 npx ctxmeter
 
-# 2. Include MCP tool schemas, the biggest and least visible cost.
+# 2. Include MCP tool schemas, the cost no local file shows.
 #    This one starts your servers, so it is opt-in. See what it would run first:
 ctxmeter mcp-scan --dry-run
 ctxmeter mcp-scan --i-understand-this-launches-servers
 
 # 3. Switch the expensive ones off. Dry run first; --disable backs up and prints the undo.
 ctxmeter fix
-ctxmeter fix --disable codex/code-review-graph   # --enable turns it back on
+ctxmeter fix --disable kiro/playwright           # --enable turns it back on
 
 # Everything else
 ctxmeter --help
@@ -68,7 +68,9 @@ Measure, then act. Two surfaces over the same numbers: the CLI for a one-shot au
 
 ## Measuring MCP, the part nobody else measures
 
-MCP tool schemas are the largest reported cost, and they exist **only in the live prompt** — no local file contains them. So measuring honestly means starting each server and asking it.
+MCP tool schemas exist **only in the live prompt** — no local file contains them. So measuring honestly means starting each server and asking it.
+
+Whether they cost anything at startup depends on the agent. Claude Code and Codex keep MCP tools behind a tool search by default and load a schema only when the model looks for it; Kiro documents no such deferral, so ctxmeter counts its servers as loaded. Claude loads everything upfront again if you set `ENABLE_TOOL_SEARCH=false`, point `ANTHROPIC_BASE_URL` at a third-party proxy, or mark a server `alwaysLoad`. ctxmeter reads those settings and reports loaded and deferred separately.
 
 That contradicts a read-only promise, so it is a separate command behind an explicit flag:
 
@@ -78,18 +80,18 @@ ctxmeter mcp-scan --i-understand-this-launches-servers
 ```
 
 ```
-MCP tool schemas cost 17,877 tokens across 78 tools.
+MCP tool schemas: 8,914 tokens load at startup; 8,963 more load only when a tool is used.
 
-  codex/code-review-graph: 7,298 tokens, 30 tools
+  codex/code-review-graph: 7,298 tokens, 30 tools — deferred
   kiro/playwright: 4,352 tokens, 25 tools
   kiro/aws-mcp: 2,892 tokens, 8 tools
   kiro/context7: 1,148 tokens, 2 tools
-  codex/shadcn: 1,124 tokens, 7 tools
-  codex/node_repl: 541 tokens, 4 tools
+  codex/shadcn: 1,124 tokens, 7 tools — deferred
+  codex/node_repl: 541 tokens, 4 tools — deferred
   kiro/exa: 522 tokens, 2 tools
 ```
 
-Per-server timeouts, hard kills, remote servers skipped unless you opt in, and schemas discarded after counting. Servers you have switched off are never started. The result is cached so `ctxmeter` folds it into the audit.
+Per-server timeouts, hard kills, remote servers skipped unless you opt in, and schemas discarded after counting. Servers you have switched off are never started. The result is cached so `ctxmeter` folds it into the audit. Deferred servers are listed but not offered by `fix`, because switching them off frees almost nothing at startup.
 
 ## Then switch the expensive ones off
 
@@ -97,14 +99,12 @@ Knowing the number is half of it. `fix` turns each finding into one edit, and th
 
 ```bash
 ctxmeter fix                                  # dry run, changes nothing
-ctxmeter fix --disable codex/code-review-graph  # one target at a time
+ctxmeter fix --disable kiro/playwright         # one target at a time
 ```
 
 ```
-20,747 tokens sit behind 12 switches you can flip.
+13,262 tokens sit behind 11 switches you can flip.
 
-     7,298  codex/code-review-graph, 30 tools
-            [mcp_servers.code-review-graph] in ~/.codex/config.toml
      4,352  kiro/playwright, 25 tools
             "playwright" in ~/.kiro/settings/mcp.json
      2,892  kiro/aws-mcp, 8 tools
@@ -114,7 +114,7 @@ ctxmeter fix --disable codex/code-review-graph  # one target at a time
        ...
 
 Nothing has been changed. To switch one off:
-  ctxmeter fix --disable codex/code-review-graph
+  ctxmeter fix --disable kiro/playwright
 ```
 
 Claude plugins switch through `enabledPlugins` in `~/.claude/settings.json`. Claude MCP servers are listed with the `/mcp` step instead of a target: their off switch lives in `~/.claude.json`, which Claude rewrites while it runs, so ctxmeter does not edit it.
@@ -122,7 +122,7 @@ Claude plugins switch through `enabledPlugins` in `~/.claude/settings.json`. Cla
 Applying writes a backup next to the original and prints the undo command:
 
 ```
-Switched off codex/code-review-graph, freeing about 7,298 tokens at startup.
+Switched off codex/plugin:ponytail@ponytail, freeing about 739 tokens at startup.
 
   changed  ~/.codex/config.toml
   backup   ~/.codex/config.toml.ctxmeter-2026-09-24T13-43-48-623Z.bak
@@ -172,6 +172,8 @@ Everything else only reads, and the default invocation of both of those only rea
 ## What it cannot tell you
 
 **Static figures are bytes ÷ 4.** A heuristic, not a tokenizer. Claude and Codex session totals are observed exactly; Kiro records only a percentage, so no token count is derived from it.
+
+**The observed session start includes your first message.** It is the context of the first request in each of the last 10 sessions, lowest reported, and sessions that open after a compaction are skipped. The difference between it and your setup's estimate is the agent's built-in system prompt and tools, plus that message.
 
 **Hook output is unmeasurable.** Its size depends on what hooks emit at runtime.
 
