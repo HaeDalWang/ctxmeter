@@ -1,6 +1,6 @@
 {
   "name": "ctxmeter",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": false,
   "description": "See what your AI coding agent loads into context before you type, and switch off what you pick. Claude Code, Codex, Kiro. Local, no account.",
   "license": "MIT",
