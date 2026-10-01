@@ -6,6 +6,7 @@
 // loudest real cost — MCP tool schemas — is not readable from disk at all.
 
 const { MEASURED_STATUS } = require('./mcp-cost');
+const { startupTokens } = require('./tool-loading');
 
 const HARNESS_LABELS = { claude: 'Claude Code', codex: 'Codex', kiro: 'Kiro' };
 
@@ -47,11 +48,12 @@ function skillFinding(harness) {
 }
 
 /// A cached `mcp-scan` turns the loudest unmeasured cost into a real number.
+/// Only schemas in the prompt at startup count; deferred ones are reported apart.
 function mcpFinding(harnessId, mcpCost) {
   const measured = (mcpCost?.servers || [])
-    .filter((server) => server.harness === harnessId && server.status === MEASURED_STATUS);
+    .filter((server) => server.harness === harnessId && server.status === MEASURED_STATUS && startupTokens(server) > 0);
   if (!measured.length) return null;
-  const tokens = measured.reduce((total, server) => total + (server.estimatedTokens || 0), 0);
+  const tokens = measured.reduce((total, server) => total + startupTokens(server), 0);
   const toolCount = measured.reduce((total, server) => total + (server.toolCount || 0), 0);
   const largest = measured.reduce((worst, server) => (server.estimatedTokens > worst.estimatedTokens ? server : worst));
   return {
@@ -59,6 +61,18 @@ function mcpFinding(harnessId, mcpCost) {
     label: 'MCP tool schemas',
     tokens,
     detail: `${toolCount} tools across ${measured.length} server${measured.length === 1 ? '' : 's'}; largest ${largest.name} at ${largest.estimatedTokens.toLocaleString('en-US')} tokens`,
+  };
+}
+
+/// Measured schemas the agent holds back until the model searches for a tool.
+function deferredMcp(harnessId, mcpCost) {
+  const servers = (mcpCost?.servers || []).filter((server) => server.harness === harnessId
+    && server.status === MEASURED_STATUS && server.loading?.mode === 'deferred' && Number.isFinite(server.estimatedTokens));
+  if (!servers.length) return null;
+  return {
+    tokens: servers.reduce((total, server) => total + server.estimatedTokens, 0),
+    servers: servers.length,
+    tools: servers.reduce((total, server) => total + (server.toolCount || 0), 0),
   };
 }
 
@@ -94,7 +108,7 @@ function unmeasuredItems(harnessId, harness, mcpCost) {
   return items;
 }
 
-function auditHarness(harnessId, harness, profiles, mcpCost) {
+function auditHarness(harnessId, harness, profiles, mcpCost, observedStart = null) {
   const findings = [instructionFinding(harnessId, harness), skillFinding(harness), mcpFinding(harnessId, mcpCost)]
     .filter(Boolean)
     .sort((left, right) => right.tokens - left.tokens);
@@ -118,19 +132,21 @@ function auditHarness(harnessId, harness, profiles, mcpCost) {
     observedInputTokens,
     startupSharePercent: contextWindowTokens ? measuredStartupTokens / contextWindowTokens * 100 : null,
     findings,
+    observedStart,
+    deferredMcp: deferredMcp(harnessId, mcpCost),
     unmeasured: unmeasuredItems(harnessId, harness, mcpCost),
   };
 }
 
-function auditReport(snapshot, profiles = {}, rawMcpCost = null) {
+function auditReport(snapshot, profiles = {}, rawMcpCost = null, baselines = {}) {
   // A cache records the home it measured. Using one from a different home would
   // report another machine's servers as this one's cost.
   const mcpCost = rawMcpCost && rawMcpCost.home && rawMcpCost.home === snapshot.target?.home
     ? rawMcpCost
     : null;
   const harnesses = Object.entries(snapshot.harnesses || {})
-    .map(([harnessId, harness]) => auditHarness(harnessId, harness, profiles, mcpCost))
-    .filter((entry) => entry.measuredStartupTokens || entry.unmeasured.length || entry.observedInputTokens !== null)
+    .map(([harnessId, harness]) => auditHarness(harnessId, harness, profiles, mcpCost, baselines?.[harnessId] || null))
+    .filter((entry) => entry.measuredStartupTokens || entry.unmeasured.length || entry.observedInputTokens !== null || entry.deferredMcp || entry.observedStart)
     .sort((left, right) => right.measuredStartupTokens - left.measuredStartupTokens);
 
   return {
@@ -146,6 +162,31 @@ function integer(value) {
   return Number(value || 0).toLocaleString('en-US');
 }
 
+function observedValue(start, short = false) {
+  if (start.unit === 'percent') return `${start.lowest.toFixed(1)}% of ${short ? 'its' : 'the'} window`;
+  return `${integer(start.lowest)} tokens`;
+}
+
+/// The observed start leads when session logs exist: it is what the agent
+/// actually sent, not an estimate. The estimate then says how much is yours.
+function headline(report) {
+  const observed = report.harnesses.filter((harness) => harness.observedStart)
+    // Token counts first, largest first; a percentage cannot be ranked against them.
+    .sort((left, right) => (left.observedStart.unit === 'tokens' ? 0 : 1) - (right.observedStart.unit === 'tokens' ? 0 : 1)
+      || right.observedStart.lowest - left.observedStart.lowest);
+  if (!observed.length) return [`Your agent setup costs ${integer(report.totalMeasuredStartupTokens)} tokens before you type anything.`];
+  const lines = [
+    'Measured in your session logs, a new session starts at:',
+    `  ${observed.map((harness) => `${harness.label} ${observedValue(harness.observedStart, true)}`).join(' · ')}`,
+  ];
+  const inTokens = observed.filter((harness) => harness.observedStart.unit === 'tokens');
+  if (inTokens.length) {
+    const yours = inTokens.reduce((total, harness) => total + harness.measuredStartupTokens, 0);
+    lines.push(`Your setup is ${integer(yours)} of those tokens; the rest is each agent's built-in prompt and tools.`);
+  }
+  return lines;
+}
+
 function formatAudit(report) {
   if (!report.harnesses.length) {
     return [
@@ -156,10 +197,7 @@ function formatAudit(report) {
     ].join('\n');
   }
 
-  const lines = [
-    `Your agent setup costs ${integer(report.totalMeasuredStartupTokens)} tokens before you type anything.`,
-    '',
-  ];
+  const lines = [...headline(report), ''];
 
   for (const harness of report.harnesses) {
     const share = harness.startupSharePercent === null
@@ -170,8 +208,13 @@ function formatAudit(report) {
       lines.push(`  ${integer(finding.tokens).padStart(9)}  ${finding.label}`);
       lines.push(`             ${finding.detail}`);
     }
-    if (harness.observedInputTokens !== null) {
-      lines.push(`  observed latest input: ${integer(harness.observedInputTokens)} tokens`);
+    if (harness.deferredMcp) {
+      const { tokens, servers, tools } = harness.deferredMcp;
+      lines.push(`  ${integer(tokens)} tokens of MCP schemas (${servers} server${servers === 1 ? '' : 's'}, ${tools} tools) load only on use`);
+    }
+    if (harness.observedStart) {
+      const { sessions } = harness.observedStart;
+      lines.push(`  session start: ${observedValue(harness.observedStart)} observed (lowest of ${sessions} session${sessions === 1 ? '' : 's'}, incl. first message)`);
     }
     if (harness.unmeasured.length) {
       const names = harness.unmeasured.map((item) => item.label).join(', ');

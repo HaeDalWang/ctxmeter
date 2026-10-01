@@ -40,14 +40,20 @@ function measuredCosts(mcpCost, home) {
 function mcpSwitch(home, server, measured) {
   const target = `${server.harness}/${server.name}`;
   const cost = measured.get(target);
+  // A deferred server costs nothing at startup, so it carries no saving to offer;
+  // its full size stays visible as `deferredTokens`.
+  const isDeferred = cost?.loading?.mode === 'deferred';
+  const tools = Number.isFinite(cost?.toolCount) ? plural(cost.toolCount, 'tool') : null;
   const base = {
     target,
     harness: server.harness,
     kind: 'mcp-server',
     name: server.name,
     enabled: server.enabled,
-    tokens: cost ? cost.estimatedTokens : null,
-    detail: Number.isFinite(cost?.toolCount) ? plural(cost.toolCount, 'tool') : null,
+    tokens: cost && !isDeferred ? cost.estimatedTokens : null,
+    deferredTokens: isDeferred ? cost.estimatedTokens : null,
+    loading: cost?.loading?.mode || null,
+    detail: isDeferred ? [tools, 'loads on use'].filter(Boolean).join(' · ') : tools,
   };
   if (server.harness === 'claude') return { ...base, format: 'manual', file: null, instruction: CLAUDE_INSTRUCTION };
   if (server.harness === 'codex') {

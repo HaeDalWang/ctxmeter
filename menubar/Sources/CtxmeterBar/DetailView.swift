@@ -170,7 +170,7 @@ private struct ItemRow: View {
             }
             Spacer(minLength: 8)
             costBar.frame(width: 90)
-            Text(item.tokens.map { Format.compactTokens($0) } ?? "unknown")
+            Text(Format.itemCost(item))
                 .font(.system(size: 11)).monospacedDigit()
                 .foregroundStyle(item.tokens == nil ? .secondary : .primary)
                 .frame(width: 58, alignment: .trailing)

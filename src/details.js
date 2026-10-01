@@ -72,6 +72,7 @@ function mcpItems(harnessId, switches) {
       tokens: item.tokens,
       detail: item.detail || null,
       switch: switchRef(item),
+      deferredTokens: item.deferredTokens ?? null,
     }));
 }
 
@@ -100,7 +101,7 @@ function byCost(left, right) {
   return right.tokens - left.tokens;
 }
 
-function harnessDetails(harnessId, harness, switches, telemetry, profiles, mcpCost) {
+function harnessDetails(harnessId, harness, switches, telemetry, profiles, mcpCost, observedStart = null) {
   const instruction = instructionFinding(harnessId, harness);
   const items = [
     ...(instruction ? [{ id: 'instructions', category: 'instructions', label: instruction.label, tokens: instruction.tokens, detail: instruction.detail, switch: null }] : []),
@@ -115,15 +116,16 @@ function harnessDetails(harnessId, harness, switches, telemetry, profiles, mcpCo
     observedInputTokens: observed,
     usagePercent: telemetry?.usagePercent ?? null,
     autocompactBufferTokens: Number.isFinite(profile?.autocompactBufferTokens) ? profile.autocompactBufferTokens : null,
+    observedStart,
     segments: segments(items, observed),
     items,
     unmeasured: unmeasuredItems(harnessId, harness, mcpCost),
   };
 }
 
-function buildDetails({ snapshot, switches, telemetry = {}, profiles = {}, mcpCost = null }) {
+function buildDetails({ snapshot, switches, telemetry = {}, profiles = {}, mcpCost = null, baselines = {} }) {
   return Object.fromEntries(Object.entries(snapshot.harnesses || {})
-    .map(([harnessId, harness]) => [harnessId, harnessDetails(harnessId, harness, switches, telemetry[harnessId], profiles, mcpCost)]));
+    .map(([harnessId, harness]) => [harnessId, harnessDetails(harnessId, harness, switches, telemetry[harnessId], profiles, mcpCost, baselines?.[harnessId] || null)]));
 }
 
 module.exports = { buildDetails };

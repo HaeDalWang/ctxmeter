@@ -80,14 +80,18 @@ public struct DetailItem: Codable, Sendable, Equatable, Identifiable {
     public let tokens: Int?
     public let detail: String?
     public let `switch`: SwitchRef?
+    /// Measured schema size of an MCP server the agent loads only on use.
+    /// `tokens` is nil for those: they cost nothing at startup.
+    public let deferredTokens: Int?
 
-    public init(id: String, category: String, label: String, tokens: Int?, detail: String?, switch: SwitchRef?) {
+    public init(id: String, category: String, label: String, tokens: Int?, detail: String?, switch: SwitchRef?, deferredTokens: Int? = nil) {
         self.id = id
         self.category = category
         self.label = label
         self.tokens = tokens
         self.detail = detail
         self.switch = `switch`
+        self.deferredTokens = deferredTokens
     }
 }
 
@@ -154,6 +158,9 @@ public struct SwitchPrompt: Equatable, Sendable {
         if let tokens = item.tokens {
             let amount = tokens.formatted(.number.locale(Locale(identifier: "en_US")))
             cost = turningOn ? "It adds about \(amount) tokens at startup." : "It frees about \(amount) tokens at startup."
+        } else if let deferred = item.deferredTokens {
+            let amount = deferred.formatted(.number.locale(Locale(identifier: "en_US")))
+            cost = "\(harness.displayName) loads its \(amount) tokens of tool schemas only when a tool is used, so this changes little at startup."
         } else {
             cost = "Its cost has not been measured."
         }
@@ -167,6 +174,12 @@ public struct SwitchPrompt: Equatable, Sendable {
 }
 
 extension Format {
+    /// The cost column of a Details row.
+    public static func itemCost(_ item: DetailItem) -> String {
+        if let tokens = item.tokens { return compactTokens(tokens) }
+        return item.deferredTokens == nil ? "unknown" : "on use"
+    }
+
     public static func historyValue(_ value: Double, unit: HistoryUnit) -> String {
         switch unit {
         case .tokens: compactTokens(Int(value.rounded()))

@@ -310,15 +310,18 @@ async function measureMcpCost(entries, options = {}) {
 function formatMcpCost(result) {
   if (!result.servers.length) return 'No MCP servers are configured.';
   const integer = (value) => Number(value || 0).toLocaleString('en-US');
-  const lines = [
-    `MCP tool schemas cost ${integer(result.totalEstimatedTokens)} tokens across ${integer(result.totalToolCount)} tools.`,
-    '',
-  ];
+  const isDeferred = (server) => server.loading?.mode === 'deferred';
+  const known = result.servers.some((server) => server.loading);
+  const deferredTotal = result.servers.filter(isDeferred).reduce((total, server) => total + (server.estimatedTokens || 0), 0);
+  const headline = known && deferredTotal
+    ? `MCP tool schemas: ${integer(result.totalEstimatedTokens - deferredTotal)} tokens load at startup; ${integer(deferredTotal)} more load only when a tool is used.`
+    : `MCP tool schemas cost ${integer(result.totalEstimatedTokens)} tokens across ${integer(result.totalToolCount)} tools.`;
+  const lines = [headline, ''];
   const ranked = [...result.servers].sort((left, right) => (right.estimatedTokens || 0) - (left.estimatedTokens || 0));
   for (const server of ranked) {
     const value = server.estimatedTokens === null
       ? `${server.status}${server.detail ? ` — ${server.detail}` : ''}`
-      : `${integer(server.estimatedTokens)} tokens, ${integer(server.toolCount)} tools`;
+      : `${integer(server.estimatedTokens)} tokens, ${integer(server.toolCount)} tools${isDeferred(server) ? ' — deferred' : ''}`;
     lines.push(`  ${server.harness}/${server.name}: ${value}`);
   }
   lines.push(
@@ -326,6 +329,9 @@ function formatMcpCost(result) {
     'Measured by starting each server and calling tools/list, then discarding the schemas.',
     'Figures are schema bytes divided by four, not a tokenizer count.',
   );
+  if (deferredTotal) {
+    lines.push('Deferred: the agent keeps these behind a tool search and loads a tool only when the model looks for it.');
+  }
   return lines.join('\n');
 }
 

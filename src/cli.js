@@ -6,10 +6,11 @@ const path = require('node:path');
 const { scanEnvironment, scanClaudeRuntime, scanCodexRuntime, scanKiroRuntime } = require('./scanner');
 const { auditReport, formatAudit } = require('./audit');
 const { describeDryRun, formatMcpCost, mcpServerEntries, measureMcpCost } = require('./mcp-cost');
+const { annotateLoading } = require('./tool-loading');
 const { applyPlan, fixProposals, formatProposals } = require('./fix');
 const { listSwitches, planSwitch } = require('./switches');
 const { createStatusLine } = require('./status-line');
-const { HISTORY_DAYS, sessionHistory } = require('./session-history');
+const { HISTORY_DAYS, sessionHistory, startupBaselines } = require('./session-history');
 const { buildDetails } = require('./details');
 const packageManifest = require('../package.json');
 
@@ -27,6 +28,16 @@ function readMcpCache(workspace) {
   } catch {
     return null;
   }
+}
+
+/// The cache plus, per server, whether the agent loads its schemas at startup.
+/// Decided now rather than at scan time, because the settings can change.
+function loadMcpCost(snapshot) {
+  const home = snapshot.target?.home;
+  const workspace = snapshot.target?.workspace;
+  const contextWindows = Object.fromEntries(Object.entries(telemetrySummary(snapshot.harnesses || {}, readProfiles()))
+    .map(([harness, telemetry]) => [harness, telemetry.contextWindowTokens]));
+  return annotateLoading(readMcpCache(workspace), { home, workspace, env: process.env, contextWindows });
 }
 
 function usage() {
@@ -207,7 +218,8 @@ async function runMcpScan(options) {
   const cacheFile = mcpCachePath(workspace);
   fs.mkdirSync(path.dirname(cacheFile), { recursive: true });
   fs.writeFileSync(cacheFile, `${JSON.stringify(result, null, 2)}\n`);
-  return { summary: `${formatMcpCost(result)}\n\nCached to ${path.relative(workspace, cacheFile)}; audit will include it.` };
+  const annotated = annotateLoading(result, { home, workspace, env: process.env });
+  return { summary: `${formatMcpCost(annotated)}\n\nCached to ${path.relative(workspace, cacheFile)}; audit will include it.` };
 }
 
 /// Which switch to flip and which way. `--apply` predates `--enable` and means off.
@@ -249,7 +261,8 @@ function runFix(options, currentDirectory) {
   status.show('Looking for switches that would free tokens…');
   let context;
   try {
-    context = { home, snapshot: scanEnvironment({ home, workspace }), mcpCost: readMcpCache(workspace) };
+    const snapshot = scanEnvironment({ home, workspace });
+    context = { home, snapshot, mcpCost: loadMcpCost(snapshot) };
   } finally {
     status.clear();
   }
@@ -295,7 +308,8 @@ async function run(argv = process.argv.slice(2), currentDirectory = process.cwd(
     status.show('Measuring Claude Code, Codex, and Kiro startup context…');
     try {
       const snapshot = scanEnvironment({ home: options.home, workspace });
-      return { summary: formatAudit(auditReport(snapshot, readProfiles(), readMcpCache(workspace))) };
+      const baselines = startupBaselines({ home: snapshot.target.home, workspace });
+      return { summary: formatAudit(auditReport(snapshot, readProfiles(), loadMcpCost(snapshot), baselines)) };
     } finally {
       status.clear();
     }
@@ -308,7 +322,7 @@ async function run(argv = process.argv.slice(2), currentDirectory = process.cwd(
     const home = options.home || os.homedir();
     const workspace = path.resolve(options.workspace || currentDirectory);
     const snapshot = scanEnvironment({ home, workspace });
-    const mcpCost = readMcpCache(workspace);
+    const mcpCost = loadMcpCost(snapshot);
     const profiles = readProfiles();
     const trustedCost = mcpCost?.home === home ? mcpCost : null;
     return {
@@ -323,6 +337,7 @@ async function run(argv = process.argv.slice(2), currentDirectory = process.cwd(
           telemetry: telemetrySummary(snapshot.harnesses, profiles),
           profiles,
           mcpCost: trustedCost,
+          baselines: startupBaselines({ home, workspace }),
         }),
       },
     };

@@ -16,6 +16,7 @@ const {
 const HISTORY_DAYS = 7;
 const TOP_SESSIONS = 5;
 const MAX_SAMPLES = 60;
+const BASELINE_SESSIONS = 10;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 function lines(file) {
@@ -160,4 +161,34 @@ function sessionHistory({ home, workspace, now = Date.now(), days = HISTORY_DAYS
   };
 }
 
-module.exports = { HISTORY_DAYS, MAX_SAMPLES, downsample, sessionHistory };
+function median(values) {
+  const sorted = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+/// What a new session actually carries before any work: the first request of
+/// each recent session, as the agent logged it. It includes the user's first
+/// message (never read, only counted by the agent), which is why `lowest` is
+/// the closer figure for pure overhead. A session that opens on a compaction
+/// summary is a continuation, not a start.
+function baselineFrom(unit, sessions, limit = BASELINE_SESSIONS) {
+  const starts = sessions
+    .filter((entry) => entry?.samples?.length && !entry.samples[0].compactedBefore)
+    .sort((left, right) => time(right.updatedAt) - time(left.updatedAt))
+    .slice(0, limit)
+    .map((entry) => ({ id: entry.id, at: entry.samples[0].at, value: entry.samples[0].value }));
+  if (!starts.length) return null;
+  const values = starts.map((start) => start.value);
+  return { unit, sessions: starts.length, lowest: Math.min(...values), median: median(values), latest: starts[0] };
+}
+
+function startupBaselines({ home, workspace, limit = BASELINE_SESSIONS }) {
+  return {
+    claude: baselineFrom('tokens', claudeSessions(home, workspace), limit),
+    codex: baselineFrom('tokens', codexSessions(home, workspace), limit),
+    kiro: baselineFrom('percent', kiroSessions(home, workspace), limit),
+  };
+}
+
+module.exports = { BASELINE_SESSIONS, HISTORY_DAYS, MAX_SAMPLES, baselineFrom, downsample, sessionHistory, startupBaselines };
