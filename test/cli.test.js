@@ -227,3 +227,18 @@ test('details prints composition and switches per harness as JSON', () => {
   assert.deepEqual(Object.keys(report.harnesses).sort(), ['claude', 'codex', 'kiro']);
   assert.equal(report.harnesses.codex.items.find((item) => item.id === 'mcp:x').switch.target, 'codex/x');
 });
+
+test('the .ctxmeter directory ignores itself so snapshots are never committed by accident', async () => {
+  // Arrange
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ctx-cli-ignore-'));
+  const workspace = path.join(home, 'repo');
+  fs.mkdirSync(workspace);
+
+  // Act
+  await run(['scan', '--home', home, '--workspace', workspace], workspace);
+
+  // Assert
+  assert.equal(fs.readFileSync(path.join(workspace, '.ctxmeter', '.gitignore'), 'utf8'), '*\n');
+});

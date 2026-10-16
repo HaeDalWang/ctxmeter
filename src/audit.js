@@ -2,8 +2,8 @@
 //
 // The scanner answers "what exists". This answers "what is it costing you at
 // session start, and what could you remove". Anything that cannot be measured
-// from local files is declared as unmeasured rather than estimated, because the
-// loudest real cost — MCP tool schemas — is not readable from disk at all.
+// from local files is declared as unmeasured rather than estimated; MCP tool
+// schemas, for one, are not readable from disk at all.
 
 const { MEASURED_STATUS } = require('./mcp-cost');
 const { startupTokens } = require('./tool-loading');
@@ -47,7 +47,7 @@ function skillFinding(harness) {
   };
 }
 
-/// A cached `mcp-scan` turns the loudest unmeasured cost into a real number.
+/// A cached `mcp-scan` turns an unmeasured cost into a real number.
 /// Only schemas in the prompt at startup count; deferred ones are reported apart.
 function mcpFinding(harnessId, mcpCost) {
   const measured = (mcpCost?.servers || [])
@@ -228,8 +228,8 @@ function formatAudit(report) {
     lines.push(`MCP schemas measured ${report.mcpMeasuredAt} by starting each server; rerun mcp-scan to refresh.`);
   } else if (report.harnesses.some((harness) => harness.unmeasured.some((item) => item.id === 'mcp'))) {
     lines.push(
-      'MCP tool schemas are the largest reported cost in the wild and are not included above.',
-      'They are injected at runtime and never written to disk. To measure them:',
+      'MCP tool schemas are not included above: they exist only in the live prompt.',
+      'Most agents now load them on use; to measure what yours load:',
       '  ctxmeter mcp-scan --dry-run      # see what would be started',
       '  ctxmeter mcp-scan --i-understand-this-launches-servers',
     );

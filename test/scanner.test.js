@@ -692,7 +692,7 @@ test('audit ranks removable startup cost and never invents a number it cannot me
   assert.equal(claude.findings[0].detail.includes('ecc@ecc'), true);
   assert.equal(claude.measuredStartupTokens, 30_254 + Math.round(10_790 / 4));
 
-  // MCP is the loudest real cost and we cannot measure it, so it is declared, not guessed.
+  // MCP schemas cannot be read from disk, so they are declared, not guessed.
   assert.equal(claude.unmeasured.find((item) => item.id === 'mcp').count, 2);
   assert.equal(claude.unmeasured.find((item) => item.id === 'mcp').tokens, null);
   assert.equal(claude.unmeasured.find((item) => item.id === 'hooks').count, 16);

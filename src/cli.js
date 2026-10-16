@@ -21,6 +21,17 @@ function mcpCachePath(workspace) {
   return path.join(workspace, '.ctxmeter', MCP_CACHE_NAME);
 }
 
+/// Snapshots hold home paths and server names. The directory lives in the
+/// user's repository, so it ignores itself rather than relying on their .gitignore.
+function ensureStateDirectory(directory) {
+  fs.mkdirSync(directory, { recursive: true });
+  let root = directory;
+  while (path.basename(root) !== '.ctxmeter' && path.dirname(root) !== root) root = path.dirname(root);
+  if (path.basename(root) !== '.ctxmeter') return;
+  const ignore = path.join(root, '.gitignore');
+  if (!fs.existsSync(ignore)) fs.writeFileSync(ignore, '*\n');
+}
+
 /// Written by mcp-scan, read by audit. Keeps the expensive path opt-in and rare.
 function readMcpCache(workspace) {
   try {
@@ -216,7 +227,7 @@ async function runMcpScan(options) {
     status.clear();
   }
   const cacheFile = mcpCachePath(workspace);
-  fs.mkdirSync(path.dirname(cacheFile), { recursive: true });
+  ensureStateDirectory(path.dirname(cacheFile));
   fs.writeFileSync(cacheFile, `${JSON.stringify(result, null, 2)}\n`);
   const annotated = annotateLoading(result, { home, workspace, env: process.env });
   return { summary: `${formatMcpCost(annotated)}\n\nCached to ${path.relative(workspace, cacheFile)}; audit will include it.` };
@@ -365,7 +376,7 @@ async function run(argv = process.argv.slice(2), currentDirectory = process.cwd(
   } finally {
     status.clear();
   }
-  fs.mkdirSync(path.dirname(output), { recursive: true });
+  ensureStateDirectory(path.dirname(output));
   fs.writeFileSync(output, `${JSON.stringify(snapshot, null, 2)}\n`);
   return { output, summary: formatSummary(snapshot, output) };
 }
