@@ -101,3 +101,9 @@ test('mcp-scan output without loading information keeps the old headline', () =>
   const plain = { ...mcpCost, servers: mcpCost.servers.map(({ loading, ...server }) => server) };
   assert.match(formatMcpCost(plain), /^MCP tool schemas cost 11,000 tokens across 55 tools\./);
 });
+
+test('mcp-scan output says so plainly when nothing loads at startup', () => {
+  const { mcpCost } = setup();
+  const allDeferred = { ...mcpCost, servers: mcpCost.servers.map((server) => ({ ...server, loading: { mode: 'deferred', reason: 'test' } })) };
+  assert.match(formatMcpCost(allDeferred), /^MCP tool schemas: none load at startup; all 11,000 tokens load only when a tool is used\./);
+});

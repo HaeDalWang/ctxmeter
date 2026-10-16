@@ -18,7 +18,7 @@ const { claudeMcpServerStates } = require('./claude-mcp');
 const PROTOCOL_VERSION = '2025-06-18';
 // A misbehaving server must not be able to exhaust our memory.
 const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
-const CLIENT_INFO = { name: 'agentlens', version: '0.1.0' };
+const CLIENT_INFO = { name: 'ctxmeter', version: require('../package.json').version };
 
 /// Only the fields a model is actually shown. Servers attach `_meta`,
 /// `annotations`, and other bookkeeping that never reaches the prompt.
@@ -168,6 +168,35 @@ function frames() {
   ];
 }
 
+/// The whole process group on POSIX; the direct child elsewhere.
+function killTree(child) {
+  try {
+    if (process.platform !== 'win32' && child.pid) process.kill(-child.pid, 'SIGKILL');
+    else child.kill('SIGKILL');
+  } catch {
+    try { child.kill('SIGKILL'); } catch { /* already gone */ }
+  }
+}
+
+/// The body as text, refusing past `limit` bytes so a remote server cannot
+/// exhaust memory any more than a local one can.
+async function readLimited(response, limit) {
+  if (!response.body) return '';
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of response.body) {
+    size += chunk.length;
+    if (size > limit) {
+      await response.body.cancel?.().catch(() => {});
+      const error = new Error('too much');
+      error.name = 'TooLarge';
+      throw error;
+    }
+    chunks.push(Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
 function measureStdioServer(entry, timeoutMs) {
   return new Promise((resolve) => {
     let child;
@@ -177,6 +206,8 @@ function measureStdioServer(entry, timeoutMs) {
         env: { ...process.env, ...entry.env },
         // npx and uvx are batch shims on Windows and are not directly executable.
         shell: process.platform === 'win32',
+        // Its own process group, so the server npx or uvx starts can be killed too.
+        detached: process.platform !== 'win32',
       });
     } catch {
       resolve({ status: 'failed', detail: 'could not spawn' });
@@ -189,13 +220,16 @@ function measureStdioServer(entry, timeoutMs) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      child.kill('SIGKILL');
+      killTree(child);
       resolve(value);
     };
     const timer = setTimeout(() => finish({ status: 'timeout', detail: `no tools/list within ${timeoutMs}ms` }), timeoutMs);
 
     child.on('error', () => finish({ status: 'failed', detail: 'could not spawn' }));
-    child.on('exit', () => finish({ status: 'failed', detail: 'exited before answering' }));
+    // 'close', not 'exit': exit can fire before the last of stdout is read.
+    child.on('close', () => finish({ status: 'failed', detail: 'exited before answering' }));
+    // A server that dies first turns our write into EPIPE, emitted asynchronously.
+    child.stdin.on('error', () => finish({ status: 'failed', detail: 'server closed its input' }));
 
     const [initialize, initialized, listTools] = frames();
     child.stdout.on('data', (chunk) => {
@@ -256,7 +290,7 @@ async function measureHttpServer(entry, timeoutMs) {
     await initializeResponse.body?.cancel();
     await post(initialized);
     const response = await post(listTools);
-    const text = await response.text();
+    const text = await readLimited(response, MAX_RESPONSE_BYTES);
     // Streamable HTTP may answer as SSE; take the last JSON payload either way.
     const payload = text.trimEnd().split('\n')
       .map((line) => line.replace(/^data:\s*/, '').trim())
@@ -266,6 +300,7 @@ async function measureHttpServer(entry, timeoutMs) {
     if (!Array.isArray(tools)) return { status: 'failed', detail: 'no tools in response' };
     return { status: MEASURED_STATUS, toolCount: tools.length, schemaBytes: toolSchemaBytes(tools) };
   } catch (error) {
+    if (error.name === 'TooLarge') return { status: 'failed', detail: 'server sent too much output before answering' };
     return { status: error.name === 'AbortError' ? 'timeout' : 'failed', detail: error.name };
   } finally {
     clearTimeout(timer);
@@ -313,9 +348,12 @@ function formatMcpCost(result) {
   const isDeferred = (server) => server.loading?.mode === 'deferred';
   const known = result.servers.some((server) => server.loading);
   const deferredTotal = result.servers.filter(isDeferred).reduce((total, server) => total + (server.estimatedTokens || 0), 0);
-  const headline = known && deferredTotal
-    ? `MCP tool schemas: ${integer(result.totalEstimatedTokens - deferredTotal)} tokens load at startup; ${integer(deferredTotal)} more load only when a tool is used.`
-    : `MCP tool schemas cost ${integer(result.totalEstimatedTokens)} tokens across ${integer(result.totalToolCount)} tools.`;
+  const startupTotal = result.totalEstimatedTokens - deferredTotal;
+  const headline = !(known && deferredTotal)
+    ? `MCP tool schemas cost ${integer(result.totalEstimatedTokens)} tokens across ${integer(result.totalToolCount)} tools.`
+    : startupTotal > 0
+      ? `MCP tool schemas: ${integer(startupTotal)} tokens load at startup; ${integer(deferredTotal)} more load only when a tool is used.`
+      : `MCP tool schemas: none load at startup; all ${integer(deferredTotal)} tokens load only when a tool is used.`;
   const lines = [headline, ''];
   const ranked = [...result.servers].sort((left, right) => (right.estimatedTokens || 0) - (left.estimatedTokens || 0));
   for (const server of ranked) {

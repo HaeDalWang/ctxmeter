@@ -409,3 +409,101 @@ test('Streamable HTTP carries the session id and protocol version after initiali
     server.close();
   }
 });
+
+function stdioEntry(home, name) {
+  return { harness: 'claude', name, transport: 'stdio', command: process.execPath, args: [path.join(home, `servers/${name}.js`)], env: {}, envKeys: [] };
+}
+
+test('a server that answers and exits at once is still measured', async () => {
+  // Arrange: the answer and the exit race; the answer must win.
+  const home = fixtureHome();
+  write(home, 'servers/quick.js', `
+let buffer = '';
+process.stdin.on('data', (chunk) => {
+  buffer += chunk;
+  for (const line of buffer.split('\\n')) {
+    if (!line.trim()) continue;
+    let row; try { row = JSON.parse(line); } catch { continue; }
+    if (row.method === 'initialize') process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: 1, result: {} }) + '\\n');
+    if (row.method === 'tools/list') {
+      const tools = Array.from({ length: 400 }, (_, i) => ({ name: 't' + i, description: 'x'.repeat(200), inputSchema: { type: 'object' } }));
+      process.stdout.end(JSON.stringify({ jsonrpc: '2.0', id: 2, result: { tools } }) + '\\n', () => process.exit(0));
+    }
+  }
+  buffer = buffer.slice(buffer.lastIndexOf('\\n') + 1);
+});
+`);
+
+  // Act
+  const result = await measureMcpCost([stdioEntry(home, 'quick')], { timeoutMs: 5_000 });
+
+  // Assert
+  assert.equal(result.servers[0].status, 'measured');
+  assert.equal(result.servers[0].toolCount, 400);
+});
+
+test('a server that dies before reading its input is reported, not a crash', async () => {
+  // Arrange
+  const home = fixtureHome();
+  write(home, 'servers/dead.js', 'process.stdin.destroy(); process.exit(1);');
+
+  // Act
+  const result = await measureMcpCost([stdioEntry(home, 'dead')], { timeoutMs: 2_000 });
+
+  // Assert
+  assert.equal(result.servers[0].status, 'failed');
+});
+
+test('a timed-out server takes the processes it started with it', { skip: process.platform === 'win32' }, async () => {
+  // Arrange: npx and uvx start the real server as a grandchild.
+  const home = fixtureHome();
+  const pidFile = path.join(home, 'grandchild.pid');
+  write(home, 'servers/parent.js', `
+const { spawn } = require('node:child_process');
+const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+require('node:fs').writeFileSync(${JSON.stringify(pidFile)}, String(child.pid));
+setInterval(() => {}, 1000);
+`);
+
+  // Act
+  const result = await measureMcpCost([stdioEntry(home, 'parent')], { timeoutMs: 800 });
+  await new Promise((resolve) => setTimeout(resolve, 200));
+
+  // Assert
+  assert.equal(result.servers[0].status, 'timeout');
+  const pid = Number(fs.readFileSync(pidFile, 'utf8'));
+  assert.throws(() => process.kill(pid, 0), /ESRCH/, 'the grandchild is gone');
+});
+
+test('an HTTP server that floods its answer is cut off', async () => {
+  // Arrange
+  const http = require('node:http');
+  const server = http.createServer((request, response) => {
+    request.resume();
+    request.on('end', () => {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      const chunk = 'x'.repeat(1024 * 1024);
+      let sent = 0;
+      const pump = () => {
+        while (sent < 20 && response.write(chunk)) sent += 1;
+        if (sent < 20) response.once('drain', () => { sent += 1; pump(); });
+        else response.end();
+      };
+      pump();
+    });
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const url = `http://127.0.0.1:${server.address().port}/mcp`;
+
+  try {
+    // Act
+    const result = await measureMcpCost([{ harness: 'claude', name: 'flood', transport: 'http', url, args: [], env: {}, envKeys: [] }], { allowRemote: true, timeoutMs: 5_000 });
+
+    // Assert
+    assert.equal(result.servers[0].status, 'failed');
+    assert.match(result.servers[0].detail, /too much/);
+  } finally {
+    server.closeAllConnections();
+    server.close();
+  }
+});
