@@ -51,27 +51,17 @@ public struct CLIRunner: Sendable {
         guard FileManager.default.isReadableFile(atPath: scriptPath) else {
             throw TelemetryLoader.LoadError.scriptMissing(scriptPath)
         }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: nodePath)
-        process.arguments = [scriptPath] + command.arguments(workspace: workspace)
-        let output = Pipe()
-        let errors = Pipe()
-        process.standardOutput = output
-        process.standardError = errors
-
-        try process.run()
-        let data = output.fileHandleForReading.readDataToEndOfFile()
-        let errorData = errors.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-
-        guard process.terminationStatus == 0 else {
-            let message = String(data: errorData, encoding: .utf8) ?? ""
+        let result = try ProcessRunner.run(
+            executable: nodePath, arguments: [scriptPath] + command.arguments(workspace: workspace)
+        )
+        guard result.status == 0 else {
+            let message = String(data: result.stderr, encoding: .utf8) ?? ""
             throw TelemetryLoader.LoadError.processFailed(
-                status: process.terminationStatus,
+                status: result.status,
                 message: message.replacingOccurrences(of: "ctxmeter error: ", with: "")
                     .trimmingCharacters(in: .whitespacesAndNewlines)
             )
         }
-        return data
+        return result.stdout
     }
 }

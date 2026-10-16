@@ -11,6 +11,7 @@ public struct TelemetryLoader: Sendable {
         case scriptMissing(String)
         case processFailed(status: Int32, message: String)
         case decodeFailed(String)
+        case timedOut(seconds: Int)
 
         public var errorDescription: String? {
             switch self {
@@ -22,6 +23,8 @@ public struct TelemetryLoader: Sendable {
                 "telemetry failed (exit \(status)): \(message)"
             case .decodeFailed(let message):
                 "Could not decode the telemetry response: \(message)"
+            case .timedOut(let seconds):
+                "ctxmeter did not finish within \(seconds)s and was stopped."
             }
         }
     }
@@ -48,26 +51,16 @@ public struct TelemetryLoader: Sendable {
         guard FileManager.default.isReadableFile(atPath: scriptPath) else {
             throw LoadError.scriptMissing(scriptPath)
         }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: nodePath)
-        process.arguments = [scriptPath, "telemetry", "--workspace", workspace]
-        let output = Pipe()
-        let errors = Pipe()
-        process.standardOutput = output
-        process.standardError = errors
-
-        try process.run()
-        let data = output.fileHandleForReading.readDataToEndOfFile()
-        let errorData = errors.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-
-        guard process.terminationStatus == 0 else {
-            let message = String(data: errorData, encoding: .utf8) ?? ""
+        let result = try ProcessRunner.run(
+            executable: nodePath, arguments: [scriptPath, "telemetry", "--workspace", workspace]
+        )
+        guard result.status == 0 else {
+            let message = String(data: result.stderr, encoding: .utf8) ?? ""
             throw LoadError.processFailed(
-                status: process.terminationStatus,
+                status: result.status,
                 message: message.trimmingCharacters(in: .whitespacesAndNewlines)
             )
         }
-        return try Self.decode(data)
+        return try Self.decode(result.stdout)
     }
 }
