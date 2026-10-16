@@ -16,6 +16,8 @@ const SEGMENT_LABELS = {
   skills: 'Skill metadata',
   mcp: 'MCP tool schemas',
   other: 'Messages, system prompt, and tools',
+  agent: 'System prompt and built-in tools',
+  rest: 'Messages and everything else',
 };
 
 function switchRef(item) {
@@ -82,16 +84,23 @@ function onTokens(items, category) {
     .reduce((total, item) => total + (item.tokens || 0), 0);
 }
 
-function segments(items, observed) {
+/// With a measured prompt, the agent's own system prompt and tools come out of
+/// the remainder as their own segment. The prompt's MCP tools are not added:
+/// the estimate already counts them under `mcp`.
+function segments(items, observed, sentPrompt = null) {
   const estimates = ['instructions', 'skills', 'mcp'].map((id) => ({ id, label: SEGMENT_LABELS[id], tokens: onTokens(items, id) }));
   if (!Number.isFinite(observed)) return estimates;
   let remaining = observed;
-  const clamped = estimates.map((segment) => {
+  const take = (segment) => {
     const tokens = Math.min(segment.tokens, remaining);
     remaining -= tokens;
     return { ...segment, tokens };
-  });
-  return [...clamped, { id: 'other', label: SEGMENT_LABELS.other, tokens: remaining }];
+  };
+  const clamped = estimates.map(take);
+  if (!sentPrompt) return [...clamped, { id: 'other', label: SEGMENT_LABELS.other, tokens: remaining }];
+  const agentTokens = sentPrompt.system.tokens + sentPrompt.builtin.tokens + sentPrompt.deferredTokens;
+  const agent = take({ id: 'agent', label: SEGMENT_LABELS.agent, tokens: agentTokens });
+  return [...clamped, agent, { id: 'other', label: SEGMENT_LABELS.rest, tokens: remaining }];
 }
 
 function byCost(left, right) {
@@ -101,7 +110,7 @@ function byCost(left, right) {
   return right.tokens - left.tokens;
 }
 
-function harnessDetails(harnessId, harness, switches, telemetry, profiles, mcpCost, observedStart = null) {
+function harnessDetails(harnessId, harness, switches, telemetry, profiles, mcpCost, observedStart = null, sentPrompt = null) {
   const instruction = instructionFinding(harnessId, harness);
   const items = [
     ...(instruction ? [{ id: 'instructions', category: 'instructions', label: instruction.label, tokens: instruction.tokens, detail: instruction.detail, switch: null }] : []),
@@ -117,15 +126,17 @@ function harnessDetails(harnessId, harness, switches, telemetry, profiles, mcpCo
     usagePercent: telemetry?.usagePercent ?? null,
     autocompactBufferTokens: Number.isFinite(profile?.autocompactBufferTokens) ? profile.autocompactBufferTokens : null,
     observedStart,
-    segments: segments(items, observed),
+    sentPrompt,
+    segments: segments(items, observed, sentPrompt),
     items,
     unmeasured: unmeasuredItems(harnessId, harness, mcpCost),
   };
 }
 
-function buildDetails({ snapshot, switches, telemetry = {}, profiles = {}, mcpCost = null, baselines = {} }) {
+function buildDetails({ snapshot, switches, telemetry = {}, profiles = {}, mcpCost = null, baselines = {}, prompts = {} }) {
   return Object.fromEntries(Object.entries(snapshot.harnesses || {})
-    .map(([harnessId, harness]) => [harnessId, harnessDetails(harnessId, harness, switches, telemetry[harnessId], profiles, mcpCost, baselines?.[harnessId] || null)]));
+    .map(([harnessId, harness]) => [harnessId, harnessDetails(harnessId, harness, switches, telemetry[harnessId], profiles, mcpCost,
+      baselines?.[harnessId] || null, prompts?.[harnessId] || null)]));
 }
 
 module.exports = { buildDetails };

@@ -1,221 +1,29 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const crypto = require('node:crypto');
+const { eachJsonLine } = require('./jsonl');
+const { claudeInstructions, codexInstructions } = require('./instructions');
 const { claudeMcpServers } = require('./claude-mcp');
-
-function exists(directory) {
-  try {
-    return fs.statSync(directory).isDirectory();
-  } catch {
-    return false;
-  }
-}
-
-function fileExists(file) {
-  try {
-    return fs.statSync(file).isFile();
-  } catch {
-    return false;
-  }
-}
-
-function readJson(file, fallback = {}) {
-  if (!fileExists(file)) return fallback;
-  try {
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch {
-    return fallback;
-  }
-}
-
-/// Kiro stores servers under `mcpServers` with a `disabled` flag. (Claude's
-/// scopes are resolved in claude-mcp.js.) A disabled server contributes nothing
-/// to the prompt, so counting it would overstate how much is unmeasured.
-function enabledMcpServerNames(config) {
-  return Object.entries(config?.mcpServers || {})
-    .filter(([, value]) => value && value.disabled !== true)
-    .map(([name]) => name);
-}
-
-function walkFiles(directory, predicate, files = [], visited = new Set()) {
-  let stat;
-  try { stat = fs.statSync(directory); } catch { return files; }
-  if (!stat.isDirectory()) return files;
-
-  // Keyed by inode rather than path, so a symlink to a directory that was already
-  // walked by its plain path, or a cycle, is visited once. The stat is the one the
-  // existence check needed anyway.
-  const key = `${stat.dev}:${stat.ino}`;
-  if (visited.has(key)) return files;
-  visited.add(key);
-
-  // One unreadable directory must not abort a scan of everything else.
-  let entries;
-  try { entries = fs.readdirSync(directory, { withFileTypes: true }); } catch { return files; }
-
-  for (const entry of entries) {
-    if (entry.name === 'node_modules') continue;
-    const item = path.join(directory, entry.name);
-    let isDirectory = entry.isDirectory();
-    let isFile = entry.isFile();
-    if (entry.isSymbolicLink()) {
-      let linked;
-      try { linked = fs.statSync(item); } catch { continue; }
-      isDirectory = linked.isDirectory();
-      isFile = linked.isFile();
-    }
-    if (isDirectory) walkFiles(item, predicate, files, visited);
-    if (isFile && predicate(item)) files.push(item);
-  }
-  return files;
-}
-
-function classifyAssetPath(assetPath) {
-  const normalized = assetPath.replaceAll('\\', '/');
-  if (/\/(?:skills|agents|rules)\.bak\.[^/]+\//.test(normalized) || normalized.includes('/.backup/') || normalized.includes('/backups/')) {
-    return 'backup';
-  }
-  if (normalized.includes('/plugins/marketplaces/')) return 'marketplace-source';
-  if (normalized.includes('/.tmp/')) return 'staging';
-  if (normalized.includes('/plugins/cache/')) return 'plugin-cache';
-  if (normalized.includes('/plugins/synced/')) return 'synced-plugin';
-  return 'active-candidate';
-}
-
-function skillMetadataBytes(file) {
-  const frontmatter = skillFrontmatter(file);
-  return frontmatter ? Buffer.byteLength(frontmatter) : 0;
-}
-
-/// The leading `---` block, tolerating a BOM and CRLF line endings. Searching
-/// from the opening newline also catches an empty block.
-function frontmatterOf(content) {
-  const opening = content.match(/^\uFEFF?---\r?\n/);
-  if (!opening) return '';
-  const end = content.indexOf('\n---', opening[0].length - 1);
-  return end === -1 ? '' : content.slice(0, end + 5);
-}
-
-function skillFrontmatter(file) {
-  if (!fileExists(file)) return 0;
-  return frontmatterOf(fs.readFileSync(file, 'utf8'));
-}
-
-function declaredSkillName(frontmatter) {
-  const match = frontmatter.match(/^name:\s*["']?([^\n"']+)["']?\s*$/m);
-  return match ? match[1].trim() : null;
-}
-
-function skillAsset(file, groupDirectory) {
-  const content = fs.readFileSync(file, 'utf8');
-  const frontmatter = frontmatterOf(content);
-  const metadataBytes = frontmatter ? Buffer.byteLength(frontmatter) : 0;
-  const stat = fs.statSync(file);
-  return {
-    relativePath: path.relative(groupDirectory, file).replaceAll(path.sep, '/'),
-    declaredName: declaredSkillName(frontmatter),
-    status: classifyAssetPath(file),
-    bodyBytes: stat.size,
-    metadataBytes,
-    metadataTokenEstimate: bytesToEstimate(metadataBytes),
-    modifiedAt: stat.mtime.toISOString(),
-    sha256: crypto.createHash('sha256').update(content).digest('hex'),
-  };
-}
-
-function bytesToEstimate(bytes) {
-  return Math.round(bytes / 4);
-}
-
-function skillGroup(id, directory, options = {}) {
-  const allowedStatuses = options.allowedStatuses || new Set(['active-candidate', 'plugin-cache', 'synced-plugin']);
-  const files = walkFiles(directory, (file) => path.basename(file) === 'SKILL.md')
-    .filter((file) => allowedStatuses.has(classifyAssetPath(file)));
-  const assets = files.map((file) => skillAsset(file, directory));
-  const metadataBytes = assets.reduce((sum, asset) => sum + asset.metadataBytes, 0);
-
-  return {
-    id,
-    path: directory,
-    status: options.status || 'active-candidate',
-    skillCount: files.length,
-    metadataBytes,
-    metadataTokenEstimate: bytesToEstimate(metadataBytes),
-    assets,
-  };
-}
-
-function countExcludedSkills(directory) {
-  const excluded = {};
-  const nonLoadableStatuses = new Set(['backup', 'marketplace-source', 'staging']);
-  for (const file of walkFiles(directory, (candidate) => path.basename(candidate) === 'SKILL.md')) {
-    const status = classifyAssetPath(file);
-    if (nonLoadableStatuses.has(status)) excluded[status] = (excluded[status] || 0) + 1;
-  }
-  return excluded;
-}
-
-function countHooks(hooks) {
-  if (!hooks || typeof hooks !== 'object') return 0;
-  return Object.values(hooks).reduce((total, handlers) => total + (Array.isArray(handlers) ? handlers.length : 0), 0);
-}
-
-function enabledPluginIds(settings) {
-  if (!settings || typeof settings.enabledPlugins !== 'object' || settings.enabledPlugins === null) return [];
-  return Object.entries(settings.enabledPlugins)
-    .filter(([, enabled]) => enabled === true)
-    .map(([id]) => id)
-    .sort();
-}
-
-function pluginCacheDirectory(claudeDirectory, pluginId) {
-  const separator = pluginId.lastIndexOf('@');
-  if (separator < 1) return null;
-  const name = pluginId.slice(0, separator);
-  const marketplace = pluginId.slice(separator + 1);
-  const root = path.join(claudeDirectory, 'plugins', 'cache', marketplace, name);
-  if (!exists(root)) return null;
-  // Claude records which version it actually installed. Directory names are
-  // versions or commit hashes, so sorting them only guesses.
-  const installs = readJson(path.join(claudeDirectory, 'plugins', 'installed_plugins.json')).plugins?.[pluginId];
-  const recorded = (Array.isArray(installs) ? installs : [])
-    .map((install) => install?.installPath)
-    .find((installPath) => typeof installPath === 'string' && path.dirname(path.resolve(installPath)) === root && exists(installPath));
-  if (recorded) return recorded;
-  const versions = fs.readdirSync(root, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink())
-    .map((entry) => entry.name)
-    .sort();
-  return versions.length ? path.join(root, versions.at(-1)) : null;
-}
-
-function fileSummary(file) {
-  if (!fileExists(file)) return null;
-  const bytes = fs.statSync(file).size;
-  return { path: file, bytes, tokenEstimate: bytesToEstimate(bytes) };
-}
-
-function costItem(kind, label, file, load) {
-  const summary = fileSummary(file);
-  return summary && { kind, label, path: file, count: 1, estimatedTokens: summary.tokenEstimate, load };
-}
-
-function directoryCostItems(kind, label, directory, suffix, load) {
-  return walkFiles(directory, (file) => file.endsWith(suffix))
-    .map((file) => costItem(kind, label, file, load));
-}
-
-function skillCostItems(groups) {
-  return groups.filter((group) => group.skillCount).map((group) => ({
-    kind: 'skills', label: group.id, path: group.path, count: group.skillCount,
-    estimatedTokens: group.metadataTokenEstimate, load: 'discovery',
-  }));
-}
-
-function runtimeCostItem(kind, label, count) {
-  return { kind, label, count, estimatedTokens: null, load: 'runtime' };
-}
+const {
+  classifyAssetPath,
+  costItem,
+  countExcludedSkills,
+  countHooks,
+  createRuntimeReader,
+  directoryCostItems,
+  enabledPluginIds,
+  exists,
+  fileExists,
+  fileSummary,
+  pluginCacheDirectory,
+  readJson,
+  runtimeCostItem,
+  skillCostItems,
+  skillGroup,
+  skillMetadataBytes,
+  walkFiles,
+} = require('./scan-common');
+const { createKiroRuntimeReader, kiroCliCandidates, kiroIdeCandidates, scanKiro, scanKiroRuntime } = require('./kiro-scan');
 
 function claudeModelCatalog(root) {
   const files = walkFiles(path.join(root, 'cache', 'model-catalog'), (file) => file.endsWith('.json'))
@@ -255,16 +63,15 @@ function claudeSessionTelemetry(root, workspace) {
     let currentModel = null;
     let firstObservedAt = null;
     let updatedAt = null;
-    for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
-      if (!line.trim()) continue;
-      let row;
-      try { row = JSON.parse(line); } catch { continue; }
+    eachJsonLine(file, (row) => {
+      // A subagent's turns report its own context, not the session's.
+      if (row.isSidechain) return;
       const raw = row.type === 'assistant' ? row.message?.usage : null;
       const model = row.message?.model;
-      if (!raw || typeof model !== 'string' || model.startsWith('<')) continue;
+      if (!raw || typeof model !== 'string' || model.startsWith('<')) return;
       const number = (value) => Number.isFinite(value) ? value : 0;
       const inputTokens = number(raw.input_tokens) + number(raw.cache_creation_input_tokens) + number(raw.cache_read_input_tokens);
-      if (!inputTokens) continue;
+      if (!inputTokens) return;
       const usage = {
         inputTokens,
         cachedInputTokens: number(raw.cache_read_input_tokens),
@@ -278,7 +85,7 @@ function claudeSessionTelemetry(root, workspace) {
       latestUsage = usage;
       currentModel = model;
       updatedAt = row.timestamp || updatedAt;
-    }
+    });
     if (latestUsage) return { source: 'local-jsonl', sourcePath: file, startModel, currentModel, firstUsage, latestUsage, firstObservedAt, updatedAt };
   }
   return null;
@@ -294,21 +101,7 @@ function scanClaudeRuntime(home = os.homedir(), workspace = process.cwd()) {
   };
 }
 
-function createClaudeRuntimeReader(options = {}) {
-  const home = options.home || os.homedir();
-  const workspace = options.workspace || process.cwd();
-  const minRefreshMs = options.minRefreshMs ?? 5_000;
-  const now = options.now || Date.now;
-  let cached = null;
-  let lastReadAt = Number.NEGATIVE_INFINITY;
-  return () => {
-    const currentTime = now();
-    if (cached && currentTime - lastReadAt < minRefreshMs) return cached;
-    cached = scanClaudeRuntime(home, workspace);
-    lastReadAt = currentTime;
-    return cached;
-  };
-}
+const createClaudeRuntimeReader = (options) => createRuntimeReader(scanClaudeRuntime, options);
 
 function tokenUsage(value) {
   if (!value || typeof value !== 'object') return null;
@@ -370,10 +163,7 @@ function codexSessionTelemetry(root, workspace) {
   let compactionCount = 0;
   let updatedAt = null;
 
-  for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
-    if (!line.trim()) continue;
-    let row;
-    try { row = JSON.parse(line); } catch { continue; }
+  eachJsonLine(file, (row) => {
     if (row.type === 'turn_context' && typeof row.payload?.model === 'string') {
       startModel ||= row.payload.model;
       currentModel = row.payload.model;
@@ -393,7 +183,7 @@ function codexSessionTelemetry(root, workspace) {
       }
     }
     if (row.type === 'compacted') compactionCount += 1;
-  }
+  });
   if (!firstUsage && !currentModel) return null;
   return {
     source: 'local-jsonl',
@@ -444,21 +234,7 @@ function scanCodexRuntime(home = os.homedir(), workspace = process.cwd()) {
   };
 }
 
-function createCodexRuntimeReader(options = {}) {
-  const home = options.home || os.homedir();
-  const workspace = options.workspace || process.cwd();
-  const minRefreshMs = options.minRefreshMs ?? 5_000;
-  const now = options.now || Date.now;
-  let cached = null;
-  let lastReadAt = Number.NEGATIVE_INFINITY;
-  return () => {
-    const currentTime = now();
-    if (cached && currentTime - lastReadAt < minRefreshMs) return cached;
-    cached = scanCodexRuntime(home, workspace);
-    lastReadAt = currentTime;
-    return cached;
-  };
-}
+const createCodexRuntimeReader = (options) => createRuntimeReader(scanCodexRuntime, options);
 
 function scanClaude(home, workspace) {
   const root = path.join(home, '.claude');
@@ -505,6 +281,7 @@ function scanClaude(home, workspace) {
     enabledPlugins,
     hookCount,
     configuredMcpServerCount,
+    instructions: claudeInstructions(home, workspace),
     alwaysOn: {
       claudeMd,
       ruleFiles: ruleFiles.length,
@@ -610,243 +387,10 @@ function scanCodex(home, workspace) {
     configuredPluginCount,
     enabledPlugins,
     configuredMcpServerCount,
+    instructions: codexInstructions(home, workspace),
     alwaysOn: { agentsMd: fileSummary(agentsFile) },
     skillGroups,
     configurationCosts,
-    excluded: countExcludedSkills(root),
-  };
-}
-
-function withinWorkspace(candidate, workspaceRoot) {
-  if (typeof candidate !== 'string' || !candidate) return false;
-  const resolved = path.resolve(candidate);
-  return resolved === workspaceRoot || resolved.startsWith(`${workspaceRoot}${path.sep}`);
-}
-
-function kiroIdeCandidates(root, workspaceRoot) {
-  const sessionsRoot = path.join(root, 'sessions');
-  if (!exists(sessionsRoot)) return [];
-  const candidates = [];
-  for (const bucket of fs.readdirSync(sessionsRoot, { withFileTypes: true })) {
-    if (!bucket.isDirectory() || bucket.isSymbolicLink() || bucket.name === 'cli') continue;
-    const bucketDirectory = path.join(sessionsRoot, bucket.name);
-    for (const entry of fs.readdirSync(bucketDirectory, { withFileTypes: true })) {
-      if (!entry.isDirectory() || !entry.name.startsWith('sess_')) continue;
-      const directory = path.join(bucketDirectory, entry.name);
-      const messages = path.join(directory, 'messages.jsonl');
-      const meta = readJson(path.join(directory, 'session.json'), null);
-      if (!fileExists(messages) || !meta) continue;
-      if (!(meta.workspacePaths || []).some((candidate) => withinWorkspace(candidate, workspaceRoot))) continue;
-      candidates.push({ store: 'ide', file: messages, modelId: meta.modelId || null, mtimeMs: fs.statSync(messages).mtimeMs });
-    }
-  }
-  return candidates;
-}
-
-function kiroIdeTelemetry(candidate) {
-  let firstUsagePercent = null;
-  let latestUsagePercent = null;
-  let firstObservedAt = null;
-  let updatedAt = null;
-  let sampleCount = 0;
-  let creditsUsed = 0;
-  for (const line of fs.readFileSync(candidate.file, 'utf8').split('\n')) {
-    if (!line.trim()) continue;
-    let row;
-    try { row = JSON.parse(line); } catch { continue; }
-    const payload = row.payload;
-    if (payload?.type === 'usage_summary') {
-      for (const summary of payload.promptTurnSummaries || []) {
-        if (Number.isFinite(summary?.usage)) creditsUsed += summary.usage;
-      }
-      continue;
-    }
-    if (payload?.type !== 'session_metadata' || payload.key !== 'contextUsage') continue;
-    const percent = payload.value?.usagePercentage;
-    if (!Number.isFinite(percent)) continue;
-    sampleCount += 1;
-    if (firstUsagePercent === null) {
-      firstUsagePercent = percent;
-      firstObservedAt = row.timestamp || null;
-    }
-    latestUsagePercent = percent;
-    updatedAt = row.timestamp || updatedAt;
-  }
-  if (firstUsagePercent === null) return null;
-  return {
-    source: 'local-session',
-    store: 'ide',
-    sourcePath: candidate.file,
-    startModel: candidate.modelId,
-    currentModel: candidate.modelId,
-    contextWindowTokens: null,
-    firstUsagePercent,
-    latestUsagePercent,
-    sampleCount,
-    creditsUsed,
-    firstObservedAt,
-    updatedAt,
-  };
-}
-
-function kiroCliCandidates(root, workspaceRoot) {
-  const directory = path.join(root, 'sessions', 'cli');
-  if (!exists(directory)) return [];
-  const candidates = [];
-  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-    if (!entry.isFile() || !entry.name.endsWith('.json')) continue;
-    const file = path.join(directory, entry.name);
-    const meta = readJson(file, null);
-    if (!meta || !withinWorkspace(meta.cwd, workspaceRoot)) continue;
-    candidates.push({ store: 'cli', file, meta, mtimeMs: fs.statSync(file).mtimeMs });
-  }
-  return candidates;
-}
-
-function meteringCredits(turn) {
-  return (turn.metering_usage || []).reduce((total, entry) => total + (Number.isFinite(entry?.value) ? entry.value : 0), 0);
-}
-
-function kiroCliTelemetry(candidate) {
-  const state = candidate.meta.session_state || {};
-  const modelInfo = state.rts_model_state?.model_info || {};
-  const turns = (state.conversation_metadata?.user_turn_metadatas || [])
-    .filter((turn) => Number.isFinite(turn?.context_usage_percentage));
-  const sessionPercent = state.rts_model_state?.context_usage_percentage;
-  const fallbackPercent = Number.isFinite(sessionPercent) ? sessionPercent : null;
-  const firstUsagePercent = turns.length ? turns[0].context_usage_percentage : fallbackPercent;
-  if (firstUsagePercent === null) return null;
-  return {
-    source: 'local-session',
-    store: 'cli',
-    sourcePath: candidate.file,
-    startModel: turns[0]?.model || modelInfo.model_id || null,
-    currentModel: turns.at(-1)?.model || modelInfo.model_id || null,
-    contextWindowTokens: Number.isFinite(modelInfo.context_window_tokens) ? modelInfo.context_window_tokens : null,
-    firstUsagePercent,
-    latestUsagePercent: turns.length ? turns.at(-1).context_usage_percentage : fallbackPercent,
-    sampleCount: turns.length || 1,
-    creditsUsed: turns.reduce((total, turn) => total + meteringCredits(turn), 0),
-    firstObservedAt: turns[0]?.end_timestamp || candidate.meta.created_at || null,
-    updatedAt: turns.at(-1)?.end_timestamp || candidate.meta.updated_at || null,
-  };
-}
-
-function kiroObservedWindows(cliCandidates) {
-  const windows = new Map();
-  for (const candidate of cliCandidates) {
-    const info = candidate.meta.session_state?.rts_model_state?.model_info || {};
-    if (typeof info.model_id === 'string' && Number.isFinite(info.context_window_tokens)) {
-      windows.set(info.model_id, info.context_window_tokens);
-    }
-  }
-  return windows;
-}
-
-function kiroSessionTelemetry(root, workspace) {
-  const workspaceRoot = path.resolve(workspace);
-  const cliCandidates = kiroCliCandidates(root, workspaceRoot);
-  const candidates = [...kiroIdeCandidates(root, workspaceRoot), ...cliCandidates]
-    .sort((left, right) => right.mtimeMs - left.mtimeMs);
-  for (const candidate of candidates) {
-    const telemetry = candidate.store === 'ide' ? kiroIdeTelemetry(candidate) : kiroCliTelemetry(candidate);
-    if (!telemetry) continue;
-    if (telemetry.contextWindowTokens !== null) return { ...telemetry, contextWindowSource: 'session' };
-    // A store without a window is still comparable: Kiro's own CLI sessions
-    // record the window per model, so reuse an observation for the same model.
-    const peerWindow = kiroObservedWindows(cliCandidates).get(telemetry.currentModel);
-    return peerWindow === undefined
-      ? { ...telemetry, contextWindowSource: null }
-      : { ...telemetry, contextWindowTokens: peerWindow, contextWindowSource: 'peer-session' };
-  }
-  return null;
-}
-
-function kiroHookCount(root, workspace) {
-  // When the workspace is the home directory both paths are the same folder.
-  const directories = [...new Set([path.join(root, 'hooks'), path.join(workspace, '.kiro', 'hooks')].map((directory) => path.resolve(directory)))];
-  return directories.reduce((total, directory) => total + walkFiles(directory, (file) => file.endsWith('.json'))
-    .reduce((sum, file) => {
-      const hooks = readJson(file, {}).hooks;
-      return sum + (Array.isArray(hooks) ? hooks.length : 0);
-    }, 0), 0);
-}
-
-function kiroCrewUsage(crewRoot) {
-  const directory = path.join(crewRoot, 'usage', 'tokens');
-  if (!exists(directory)) return null;
-  const files = fs.readdirSync(directory, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && entry.name.endsWith('.jsonl'))
-    .map((entry) => entry.name)
-    .sort();
-  let recordCount = 0;
-  let creditsTotal = 0;
-  for (const name of files) {
-    for (const line of fs.readFileSync(path.join(directory, name), 'utf8').split('\n')) {
-      if (!line.trim()) continue;
-      let row;
-      try { row = JSON.parse(line); } catch { continue; }
-      if (row._type !== 'tokens') continue;
-      recordCount += 1;
-      if (Number.isFinite(row.credits)) creditsTotal += row.credits;
-    }
-  }
-  if (!recordCount) return null;
-  return {
-    recordCount,
-    creditsTotal,
-    firstDate: path.basename(files[0], '.jsonl'),
-    lastDate: path.basename(files.at(-1), '.jsonl'),
-    workspaceAttributable: false,
-  };
-}
-
-function scanKiroRuntime(home = os.homedir(), workspace = process.cwd()) {
-  const root = path.join(home, '.kiro');
-  const sessionTelemetry = kiroSessionTelemetry(root, workspace);
-  return {
-    modelCatalog: { selectedModel: sessionTelemetry?.currentModel || null, models: [] },
-    sessionTelemetry,
-  };
-}
-
-function createKiroRuntimeReader(options = {}) {
-  const home = options.home || os.homedir();
-  const workspace = options.workspace || process.cwd();
-  const minRefreshMs = options.minRefreshMs ?? 5_000;
-  const now = options.now || Date.now;
-  let cached = null;
-  let lastReadAt = Number.NEGATIVE_INFINITY;
-  return () => {
-    const currentTime = now();
-    if (cached && currentTime - lastReadAt < minRefreshMs) return cached;
-    cached = scanKiroRuntime(home, workspace);
-    lastReadAt = currentTime;
-    return cached;
-  };
-}
-
-function scanKiro(home, workspace) {
-  const root = path.join(home, '.kiro');
-  const crewRoot = path.join(root, 'crew');
-  return {
-    versionSource: 'local-cli',
-    root,
-    ...scanKiroRuntime(home, workspace),
-    crewUsage: kiroCrewUsage(crewRoot),
-    hookCount: kiroHookCount(root, workspace),
-    configuredMcpServerCount: enabledMcpServerNames(readJson(path.join(root, 'settings', 'mcp.json'))).length,
-    customAgentCount: walkFiles(path.join(root, 'agents'), (file) => file.endsWith('.json')).length,
-    powerCount: walkFiles(path.join(root, 'powers'), (file) => path.basename(file) === 'plugin.json').length,
-    steering: (() => {
-      const files = walkFiles(path.join(root, 'steering'), (file) => file.endsWith('.md'));
-      const bytes = files.reduce((total, file) => total + fs.statSync(file).size, 0);
-      return { fileCount: files.length, bytes, tokenEstimate: bytesToEstimate(bytes) };
-    })(),
-    skillGroups: [
-      skillGroup('user-skills', path.join(root, 'skills'), { allowedStatuses: new Set(['active-candidate']) }),
-    ],
-    crew: skillGroup('crew-skills', path.join(crewRoot, 'skills'), { allowedStatuses: new Set(['active-candidate']) }),
     excluded: countExcludedSkills(root),
   };
 }

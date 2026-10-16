@@ -80,6 +80,24 @@ test('discovers enabled Claude plugins without counting marketplace sources as a
   assert.ok(snapshot.warnings.some((warning) => warning.code === 'ESTIMATE_NOT_EXACT'));
 });
 
+test('temporary checkouts, session logs, and .git are not walked for skills', () => {
+  // Arrange: a marketplace staging checkout can hold tens of thousands of directories.
+  const home = fixtureHome();
+  const workspace = path.join(home, 'workspace');
+  fs.mkdirSync(workspace, { recursive: true });
+  write(home, '.codex/.tmp/marketplaces/big/skills/a/SKILL.md', '---\nname: a\n---\n');
+  write(home, '.codex/sessions/2026/10/16/skills/b/SKILL.md', '---\nname: b\n---\n');
+  write(home, '.codex/skills/.git/objects/c/SKILL.md', '---\nname: c\n---\n');
+  write(home, '.codex/skills/real/SKILL.md', '---\nname: real\n---\n');
+
+  // Act
+  const codex = scanEnvironment({ home, workspace }).harnesses.codex;
+
+  // Assert
+  assert.deepEqual(codex.excluded, {});
+  assert.equal(codex.skillGroups.find((group) => group.id === 'user-and-system-skills').skillCount, 1);
+});
+
 test('includes an asset-level skill inventory without persisting skill body text', () => {
   const home = fixtureHome();
   const workspace = path.join(home, 'workspace');
@@ -809,4 +827,24 @@ test('a Claude plugin is read from its recorded install path, not the lexically 
 
   // Assert
   assert.deepEqual(group.assets.map((asset) => asset.declaredName), ['new']);
+});
+
+test('Claude telemetry ignores subagent rows, as session history does', () => {
+  // Arrange: a subagent runs in its own, much smaller context.
+  const home = fixtureHome();
+  const workspace = path.join(home, 'workspace');
+  fs.mkdirSync(workspace, { recursive: true });
+  const directory = path.join(home, '.claude', 'projects', workspace.replace(/[^A-Za-z0-9]/g, '-'));
+  const turn = (cacheRead, extra = {}) => JSON.stringify({
+    type: 'assistant', timestamp: '2026-10-16T00:00:00Z',
+    message: { model: 'claude-opus-5-5', usage: { input_tokens: 0, cache_read_input_tokens: cacheRead, cache_creation_input_tokens: 0 } },
+    ...extra,
+  });
+  write(home, path.relative(home, path.join(directory, 's.jsonl')), `${turn(70_000)}\n${turn(3_000, { isSidechain: true })}\n`);
+
+  // Act
+  const { sessionTelemetry } = require("../src/scanner").scanClaudeRuntime(home, workspace);
+
+  // Assert
+  assert.equal(sessionTelemetry.latestUsage.inputTokens, 70_000);
 });

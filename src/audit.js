@@ -14,7 +14,34 @@ function bytesToTokens(bytes) {
   return Math.round((bytes || 0) / 4);
 }
 
+const SCOPE_LABELS = {
+  global: 'global', project: 'project', ancestor: 'parent directories', local: 'local',
+  import: 'imports', rule: 'rules', steering: 'workspace steering',
+};
+const INSTRUCTION_LABELS = { claude: 'Instructions and rules', codex: 'AGENTS.md instructions', kiro: 'Steering documents' };
+
+function describeInstructionFiles(instructions, harnessId) {
+  const counts = new Map();
+  for (const file of instructions.files) counts.set(file.scope, (counts.get(file.scope) || 0) + 1);
+  const single = { user: 'user CLAUDE.md', ...(harnessId === 'codex' ? { global: 'global AGENTS.md' } : {}) };
+  const labels = { ...SCOPE_LABELS, ...(harnessId === 'kiro' ? { global: 'global steering' } : {}) };
+  const parts = [...counts].map(([scope, count]) => single[scope] || `${labels[scope] || scope} ${count}`);
+  const notes = [];
+  if (instructions.onDemand) notes.push(`${instructions.onDemand} more load on demand`);
+  if (instructions.truncated && harnessId === 'codex') notes.push('cut at project_doc_max_bytes');
+  const count = instructions.files.length;
+  return `${count} file${count === 1 ? '' : 's'}: ${parts.join(', ')}${notes.length ? `; ${notes.join('; ')}` : ''}`;
+}
+
+/// Files each agent loads at launch (src/instructions.js). Older snapshots
+/// without that field fall back to the global files they recorded.
 function instructionFinding(harnessId, harness) {
+  if (harness.instructions) {
+    const { tokens } = harness.instructions;
+    return tokens
+      ? { id: 'instructions', label: INSTRUCTION_LABELS[harnessId] || 'Instructions', tokens, detail: describeInstructionFiles(harness.instructions, harnessId) }
+      : null;
+  }
   if (harnessId === 'claude') {
     const tokens = (harness.alwaysOn?.claudeMd?.tokenEstimate || 0) + bytesToTokens(harness.alwaysOn?.ruleBytes);
     const ruleFiles = harness.alwaysOn?.ruleFiles || 0;
@@ -108,7 +135,7 @@ function unmeasuredItems(harnessId, harness, mcpCost) {
   return items;
 }
 
-function auditHarness(harnessId, harness, profiles, mcpCost, observedStart = null) {
+function auditHarness(harnessId, harness, profiles, mcpCost, observedStart = null, sentPrompt = null) {
   const findings = [instructionFinding(harnessId, harness), skillFinding(harness), mcpFinding(harnessId, mcpCost)]
     .filter(Boolean)
     .sort((left, right) => right.tokens - left.tokens);
@@ -133,19 +160,21 @@ function auditHarness(harnessId, harness, profiles, mcpCost, observedStart = nul
     startupSharePercent: contextWindowTokens ? measuredStartupTokens / contextWindowTokens * 100 : null,
     findings,
     observedStart,
+    sentPrompt,
     deferredMcp: deferredMcp(harnessId, mcpCost),
     unmeasured: unmeasuredItems(harnessId, harness, mcpCost),
   };
 }
 
-function auditReport(snapshot, profiles = {}, rawMcpCost = null, baselines = {}) {
+/// `prompts` holds what an agent logged it sent (Claude's api-request-shape).
+function auditReport(snapshot, profiles = {}, rawMcpCost = null, baselines = {}, prompts = {}) {
   // A cache records the home it measured. Using one from a different home would
   // report another machine's servers as this one's cost.
   const mcpCost = rawMcpCost && rawMcpCost.home && rawMcpCost.home === snapshot.target?.home
     ? rawMcpCost
     : null;
   const harnesses = Object.entries(snapshot.harnesses || {})
-    .map(([harnessId, harness]) => auditHarness(harnessId, harness, profiles, mcpCost, baselines?.[harnessId] || null))
+    .map(([harnessId, harness]) => auditHarness(harnessId, harness, profiles, mcpCost, baselines?.[harnessId] || null, prompts?.[harnessId] || null))
     .filter((entry) => entry.measuredStartupTokens || entry.unmeasured.length || entry.observedInputTokens !== null || entry.deferredMcp || entry.observedStart)
     .sort((left, right) => right.measuredStartupTokens - left.measuredStartupTokens);
 
@@ -167,6 +196,18 @@ function observedValue(start, short = false) {
   return `${integer(start.lowest)} tokens`;
 }
 
+/// Sizes from the agent's own log of its last request; no text is read.
+function sentPromptLine(sent) {
+  const parts = [
+    `system ${integer(sent.system.tokens)}`,
+    `${sent.builtin.tools} built-in tools ${integer(sent.builtin.tokens)}`,
+  ];
+  const mcp = sent.mcp.reduce((total, entry) => total + entry.tokens, 0);
+  if (mcp) parts.push(`MCP ${integer(mcp)}`);
+  if (sent.deferredTokens) parts.push(`deferred list ${integer(sent.deferredTokens)}`);
+  return `agent's own prompt: ${integer(sent.totalTokens)} tokens (${parts.join(' · ')}), from the last request`;
+}
+
 /// The observed start leads when session logs exist: it is what the agent
 /// actually sent, not an estimate. The estimate then says how much is yours.
 function headline(report) {
@@ -182,7 +223,14 @@ function headline(report) {
   const inTokens = observed.filter((harness) => harness.observedStart.unit === 'tokens');
   if (inTokens.length) {
     const yours = inTokens.reduce((total, harness) => total + harness.measuredStartupTokens, 0);
-    lines.push(`Your setup is ${integer(yours)} of those tokens; the rest is each agent's built-in prompt and tools.`);
+    const sent = inTokens.filter((harness) => harness.sentPrompt);
+    if (!sent.length) {
+      lines.push(`Your setup is ${integer(yours)} of those tokens; the rest is each agent's built-in prompt and tools.`);
+      return lines;
+    }
+    const own = sent.map((harness) => `${harness.label}'s own prompt and tools measure ${integer(harness.sentPrompt.totalTokens)}`).join('; ');
+    const unmeasuredAgents = inTokens.length > sent.length ? ', other agents\' built-in prompts,' : '';
+    lines.push(`Your setup is ${integer(yours)} of those tokens; ${own}. The rest is your first message${unmeasuredAgents} and anything not measured.`);
   }
   return lines;
 }
@@ -212,6 +260,7 @@ function formatAudit(report) {
       const { tokens, servers, tools } = harness.deferredMcp;
       lines.push(`  ${integer(tokens)} tokens of MCP schemas (${servers} server${servers === 1 ? '' : 's'}, ${tools} tools) load only on use`);
     }
+    if (harness.sentPrompt) lines.push(`  ${sentPromptLine(harness.sentPrompt)}`);
     if (harness.observedStart) {
       const { sessions } = harness.observedStart;
       lines.push(`  session start: ${observedValue(harness.observedStart)} observed (lowest of ${sessions} session${sessions === 1 ? '' : 's'}, incl. first message)`);

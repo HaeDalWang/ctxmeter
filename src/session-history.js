@@ -9,6 +9,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { eachJsonLine } = require('./jsonl');
 const {
   claudeProjectDirectory, codexWorkspaceSessionFiles, kiroCliCandidates, kiroIdeCandidates,
 } = require('./scanner');
@@ -19,13 +20,8 @@ const MAX_SAMPLES = 60;
 const BASELINE_SESSIONS = 10;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-function lines(file) {
-  const rows = [];
-  for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
-    if (!line.trim()) continue;
-    try { rows.push(JSON.parse(line)); } catch { /* a torn last line is normal while a session is live */ }
-  }
-  return rows;
+function mtime(file) {
+  try { return fs.statSync(file).mtimeMs; } catch { return 0; }
 }
 
 function number(value) {
@@ -41,27 +37,44 @@ function session(id, model, samples) {
     startedAt: samples[0].at,
     updatedAt: samples.at(-1).at,
     turns: samples.length,
-    peak: Math.max(...samples.map((sample) => sample.value)),
+    // reduce, not Math.max(...): spreading a very long session overflows the stack.
+    peak: samples.reduce((best, sample) => Math.max(best, sample.value), 0),
     compactions: samples.filter((sample) => sample.compactedBefore).length,
     samples,
   };
 }
 
-function collect(rows, read) {
+/// Folds rows into samples. With `firstOnly`, stops at the first sample, which
+/// is all a startup baseline needs from a file that may be hundreds of MB.
+function collector(read, { firstOnly = false } = {}) {
   const samples = [];
   let pendingCompaction = false;
   let model = null;
-  for (const row of rows) {
+  const visit = (row) => {
     const step = read(row);
-    if (!step) continue;
+    if (!step) return true;
     if (step.model) model = step.model;
     if (step.compaction) pendingCompaction = true;
     if (Number.isFinite(step.value) && step.value > 0) {
       samples.push({ at: step.at || null, value: step.value, compactedBefore: pendingCompaction });
       pendingCompaction = false;
+      if (firstOnly) return false;
     }
-  }
-  return { samples, model };
+    return true;
+  };
+  return { visit, result: () => ({ samples, model }) };
+}
+
+function collect(rows, read) {
+  const { visit, result } = collector(read);
+  for (const row of rows) visit(row);
+  return result();
+}
+
+function collectFile(file, read, options) {
+  const { visit, result } = collector(read, options);
+  eachJsonLine(file, visit);
+  return result();
 }
 
 function claudeRow(row) {
@@ -90,28 +103,46 @@ function kiroIdeRow(row) {
   return { at: row.timestamp, value: payload.value?.usagePercentage };
 }
 
-function fromFile(file, read) {
-  const { samples, model } = collect(lines(file), read);
-  return session(path.basename(file, '.jsonl'), model, samples);
+/// A session from its log. `firstOnly` reads up to the first sample; the
+/// session's `updatedAt` then falls back to the file's mtime so ordering holds.
+function fromFile(file, read, id, model, options = {}) {
+  const collected = collectFile(file, read, options);
+  const entry = session(id, model || collected.model, collected.samples);
+  if (entry && options.firstOnly) entry.updatedAt = new Date(mtime(file)).toISOString();
+  return entry;
 }
 
-function claudeSessions(home, workspace) {
+/// Which files to read. Newest first, so `limit` keeps the most recent; `since`
+/// drops files untouched since then, except the newest, which is the current one.
+function selectFiles(files, { since = null, limit = Infinity } = {}) {
+  const ordered = files.map((file) => ({ file, at: mtime(file) })).sort((left, right) => right.at - left.at);
+  return ordered
+    .filter((entry, index) => index === 0 || since === null || entry.at >= since)
+    .slice(0, limit)
+    .map((entry) => entry.file);
+}
+
+function claudeSessions(home, workspace, options = {}) {
   const directory = claudeProjectDirectory(path.join(home, '.claude'), workspace);
   let names;
   try { names = fs.readdirSync(directory).filter((name) => name.endsWith('.jsonl')); } catch { return []; }
-  return names.map((name) => fromFile(path.join(directory, name), claudeRow));
+  return selectFiles(names.map((name) => path.join(directory, name)), options)
+    .map((file) => fromFile(file, claudeRow, path.basename(file, '.jsonl'), null, options));
 }
 
-function codexSessions(home, workspace) {
-  return codexWorkspaceSessionFiles(path.join(home, '.codex'), workspace).map((file) => fromFile(file, codexRow));
+function codexSessions(home, workspace, options = {}) {
+  return selectFiles(codexWorkspaceSessionFiles(path.join(home, '.codex'), workspace), options)
+    .map((file) => fromFile(file, codexRow, path.basename(file, '.jsonl'), null, options));
 }
 
-function kiroSessions(home, workspace) {
+function kiroSessions(home, workspace, options = {}) {
   const root = path.join(home, '.kiro');
   const workspaceRoot = path.resolve(workspace);
-  const ide = kiroIdeCandidates(root, workspaceRoot).map((candidate) => {
-    const { samples } = collect(lines(candidate.file), kiroIdeRow);
-    return session(path.basename(path.dirname(candidate.file)), candidate.modelId, samples);
+  const candidates = kiroIdeCandidates(root, workspaceRoot);
+  const byFile = new Map(candidates.map((candidate) => [candidate.file, candidate]));
+  const ide = selectFiles(candidates.map((candidate) => candidate.file), options).map((file) => {
+    const candidate = byFile.get(file);
+    return fromFile(file, kiroIdeRow, path.basename(path.dirname(file)), candidate.modelId, options);
   });
   const cli = kiroCliCandidates(root, workspaceRoot).map((candidate) => {
     const turns = candidate.meta.session_state?.conversation_metadata?.user_turn_metadatas || [];
@@ -154,10 +185,12 @@ function summarise(unit, sessions, now, days) {
 }
 
 function sessionHistory({ home, workspace, now = Date.now(), days = HISTORY_DAYS }) {
+  // A file untouched since the window opened cannot hold a session inside it.
+  const options = { since: now - days * DAY_MS };
   return {
-    claude: summarise('tokens', claudeSessions(home, workspace), now, days),
-    codex: summarise('tokens', codexSessions(home, workspace), now, days),
-    kiro: summarise('percent', kiroSessions(home, workspace), now, days),
+    claude: summarise('tokens', claudeSessions(home, workspace, options), now, days),
+    codex: summarise('tokens', codexSessions(home, workspace, options), now, days),
+    kiro: summarise('percent', kiroSessions(home, workspace, options), now, days),
   };
 }
 
@@ -183,11 +216,14 @@ function baselineFrom(unit, sessions, limit = BASELINE_SESSIONS) {
   return { unit, sessions: starts.length, lowest: Math.min(...values), median: median(values), latest: starts[0] };
 }
 
+/// Only the first sample of each file is read, and only the newest few files:
+/// some are skipped as compaction continuations, so it reads twice the limit.
 function startupBaselines({ home, workspace, limit = BASELINE_SESSIONS }) {
+  const options = { firstOnly: true, limit: limit * 2 };
   return {
-    claude: baselineFrom('tokens', claudeSessions(home, workspace), limit),
-    codex: baselineFrom('tokens', codexSessions(home, workspace), limit),
-    kiro: baselineFrom('percent', kiroSessions(home, workspace), limit),
+    claude: baselineFrom('tokens', claudeSessions(home, workspace, options), limit),
+    codex: baselineFrom('tokens', codexSessions(home, workspace, options), limit),
+    kiro: baselineFrom('percent', kiroSessions(home, workspace, options), limit),
   };
 }
 

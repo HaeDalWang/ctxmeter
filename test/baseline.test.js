@@ -87,6 +87,9 @@ test('reads Claude session logs for the workspace, ignoring subagent rows', () =
     claudeTurn('2026-09-28T10:05:00Z', 80_000),
   ]);
   writeLines(path.join(directory, 'two.jsonl'), [claudeTurn('2026-09-27T10:00:00Z', 50_000)]);
+  // "Latest" is the session written to most recently.
+  fs.utimesSync(path.join(directory, 'two.jsonl'), new Date('2026-09-27T10:00:00Z'), new Date('2026-09-27T10:00:00Z'));
+  fs.utimesSync(path.join(directory, 'one.jsonl'), new Date('2026-09-28T10:05:00Z'), new Date('2026-09-28T10:05:00Z'));
 
   const { claude, codex, kiro } = startupBaselines({ home, workspace });
 

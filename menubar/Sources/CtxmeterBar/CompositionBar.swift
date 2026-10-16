@@ -19,6 +19,7 @@ struct CompositionBar: View {
         "instructions": Color(red: 0.93, green: 0.42, blue: 0.62),
         "skills": Color(red: 0.96, green: 0.72, blue: 0.25),
         "mcp": Color(red: 0.62, green: 0.48, blue: 0.98),
+        "agent": Color(red: 0.36, green: 0.78, blue: 0.72),
         "other": Color(red: 0.42, green: 0.55, blue: 0.98),
     ]
 

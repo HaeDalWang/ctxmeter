@@ -12,6 +12,7 @@ const { listSwitches, planSwitch } = require('./switches');
 const { createStatusLine } = require('./status-line');
 const { HISTORY_DAYS, sessionHistory, startupBaselines } = require('./session-history');
 const { buildDetails } = require('./details');
+const { claudePromptShape } = require('./claude-prompt');
 const packageManifest = require('../package.json');
 
 const PROFILES_FILE = path.join(__dirname, '..', 'config', 'context-profiles.json');
@@ -320,7 +321,8 @@ async function run(argv = process.argv.slice(2), currentDirectory = process.cwd(
     try {
       const snapshot = scanEnvironment({ home: options.home, workspace });
       const baselines = startupBaselines({ home: snapshot.target.home, workspace });
-      return { summary: formatAudit(auditReport(snapshot, readProfiles(), loadMcpCost(snapshot), baselines)) };
+      const prompts = { claude: claudePromptShape(snapshot.target.home, workspace) };
+      return { summary: formatAudit(auditReport(snapshot, readProfiles(), loadMcpCost(snapshot), baselines, prompts)) };
     } finally {
       status.clear();
     }
@@ -349,6 +351,7 @@ async function run(argv = process.argv.slice(2), currentDirectory = process.cwd(
           profiles,
           mcpCost: trustedCost,
           baselines: startupBaselines({ home, workspace }),
+          prompts: { claude: claudePromptShape(home, workspace) },
         }),
       },
     };
