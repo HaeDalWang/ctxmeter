@@ -169,11 +169,15 @@ Two commands step outside read-only, and both require an explicit flag:
 
 Everything else only reads, and the default invocation of both of those only reads too. `mcp-scan` passes your shell environment through to each server it starts, because servers need `PATH` and `HOME` to run at all. That is how every MCP client works, and it is why the command is opt-in.
 
+## What it counts
+
+Instruction files follow each agent's documented discovery, not just the global file: Claude's `CLAUDE.md` in the workspace and every directory above it, `CLAUDE.local.md`, `@imports` up to four hops, rules without `paths`, and `AGENTS.md` when no `CLAUDE.md` exists; Codex's `AGENTS.md` chain from the git root down, capped at `project_doc_max_bytes`; Kiro steering marked `always` (or unmarked), global and workspace, plus `AGENTS.md`. Files that load on demand are counted separately, not as startup cost.
+
 ## What it cannot tell you
 
 **Static figures are bytes ÷ 4.** A heuristic, not a tokenizer. Claude and Codex session totals are observed exactly; Kiro records only a percentage, so no token count is derived from it.
 
-**The observed session start includes your first message.** It is the context of the first request in each of the last 10 sessions, lowest reported, and sessions that open after a compaction are skipped. The difference between it and your setup's estimate is the agent's built-in system prompt and tools, plus that message.
+**The observed session start includes your first message.** It is the context of the first request in each of the last 10 sessions, lowest reported, and sessions that open after a compaction are skipped. The difference between it and your setup's estimate is the agent's built-in system prompt and tools, plus that message. For Claude Code 2.1.300+, ctxmeter measures that built-in part too, from the request shape Claude writes to its session log; only sizes are taken, and the lines carrying message content are skipped without being parsed.
 
 **Hook output is unmeasurable.** Its size depends on what hooks emit at runtime.
 

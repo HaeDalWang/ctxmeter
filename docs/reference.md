@@ -59,6 +59,20 @@ An enabled server is not necessarily in the startup prompt. `src/tool-loading.js
 
 Claude's env is the shell's, overlaid by `env` in `~/.claude/settings.json`, `<workspace>/.claude/settings.json`, and `settings.local.json`. `auto` with an unknown window counts as loaded. A deferred server reports `tokens: null` and `deferredTokens` in `details`, is listed with `— deferred` by `mcp-scan`, appears as one "load only on use" line in the audit, and is not offered by `fix`.
 
+## Instruction discovery
+
+`src/instructions.js` lists the files each agent loads at launch, per vendor docs checked 2026-10-16:
+
+- Claude ([memory docs](https://code.claude.com/docs/en/memory)): `~/.claude/CLAUDE.md`; `CLAUDE.md`, `.claude/CLAUDE.md`, `CLAUDE.local.md` in the workspace and every directory above it; `@path` imports outside code spans and fences, relative to the importing file, up to four hops; `~/.claude/rules` and `<workspace>/.claude/rules` without a `paths` field (front matter not counted). `AGENTS.md` / `.claude/AGENTS.md` only when no `CLAUDE.md`-family file exists in the workspace or above. Subdirectory files load on demand and are not counted. Not modelled: HTML comment stripping, `claudeMdExcludes`, the Project instructions setting, external-import approval.
+- Codex ([AGENTS.md guide](https://learn.chatgpt.com/docs/agent-configuration/agents-md)): `~/.codex/AGENTS.override.md` or `AGENTS.md`; then one of `AGENTS.override.md`, `AGENTS.md`, `project_doc_fallback_filenames` per directory from the git root down to the workspace (only the workspace without a git root), stopping at `project_doc_max_bytes` (32 KiB). Not modelled: `CODEX_HOME`.
+- Kiro ([steering docs](https://kiro.dev/docs/steering/)): `~/.kiro/steering` and `<workspace>/.kiro/steering` files with no `inclusion` or `inclusion: always`; `AGENTS.md` there or at the workspace root, always.
+
+Files are deduplicated by real path, so a `CLAUDE.md` symlinked to `AGENTS.md` counts once.
+
+## Claude's own prompt
+
+Claude Code 2.1.300+ writes an `api-request-shape` row per request: the system prompt blocks and every tool definition. `src/claude-prompt.js` takes the newest one from the workspace's five most recent sessions and keeps sizes only: system prompt, built-in tools, MCP tools per server, deferred-tool placeholders. Lines are matched for `"type":"api-request-shape"` on raw bytes before parsing, so `api-request-blob` rows, which carry message content, are never decoded. In `details`, this splits the agent's own share out of the remainder as an `agent` segment.
+
 ## Observed session start
 
 The audit's first line is measured, not estimated: the input context of the first request in each of the last 10 sessions per agent (`BASELINE_SESSIONS` in `src/session-history.js`), skipping sessions whose first request follows a compaction. Lowest, median, and latest are kept; the audit prints the lowest. It includes the agent's built-in prompt and tools and the first user message, which is why it is larger than the estimate of your setup. Kiro records a percentage only, so its value stays a percentage. Without session logs the headline falls back to the estimate.
