@@ -23,6 +23,7 @@ const {
   skillMetadataBytes,
   walkFiles,
 } = require('./scan-common');
+const { isInstalled: openCodeInstalled, scanOpenCode } = require('./opencode-scan');
 const { createKiroRuntimeReader, kiroCliCandidates, kiroIdeCandidates, scanKiro, scanKiroRuntime } = require('./kiro-scan');
 
 function claudeModelCatalog(root) {
@@ -414,6 +415,7 @@ function scanEnvironment(options = {}) {
       claude: scanClaude(home, workspace),
       codex: scanCodex(home, workspace),
       kiro: scanKiro(home, workspace),
+      ...(openCodeInstalled(home) ? { opencode: scanOpenCode(home, workspace) } : {}),
     },
     workspace: { assets: scanWorkspace(workspace) },
     warnings: [

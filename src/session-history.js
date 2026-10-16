@@ -13,6 +13,7 @@ const { eachJsonLine } = require('./jsonl');
 const {
   claudeProjectDirectory, codexWorkspaceSessionFiles, kiroCliCandidates, kiroIdeCandidates,
 } = require('./scanner');
+const { isInstalled: openCodeInstalled, messageContext, opencodeSessionRows } = require('./opencode-scan');
 
 const HISTORY_DAYS = 7;
 const TOP_SESSIONS = 5;
@@ -110,6 +111,22 @@ function kiroIdeRow(row) {
   return { at: row.timestamp, value: payload.value?.usagePercentage };
 }
 
+/// The summary request is the compaction; the request after it starts afresh.
+function opencodeRow({ at, data }) {
+  if (data?.summary) return { compaction: true };
+  return { at, model: data?.modelID || null, value: messageContext(data) };
+}
+
+function opencodeSessions(home, workspace, options = {}) {
+  const limit = Number.isFinite(options.limit) ? options.limit : undefined;
+  return opencodeSessionRows(home, workspace, limit ? { limit } : {}).map((row) => {
+    const { samples, model } = collect(row.messages, opencodeRow);
+    const entry = session(row.id, model, samples);
+    if (entry) entry.version = row.version;
+    return entry;
+  });
+}
+
 /// A session from its log. `firstOnly` reads up to the first sample; the
 /// session's `updatedAt` then falls back to the file's mtime so ordering holds.
 function fromFile(file, read, id, model, options = {}) {
@@ -199,6 +216,7 @@ function sessionHistory({ home, workspace, now = Date.now(), days = HISTORY_DAYS
     claude: summarise('tokens', claudeSessions(home, workspace, options), now, days),
     codex: summarise('tokens', codexSessions(home, workspace, options), now, days),
     kiro: summarise('percent', kiroSessions(home, workspace, options), now, days),
+    ...(openCodeInstalled(home) ? { opencode: summarise('tokens', opencodeSessions(home, workspace), now, days) } : {}),
   };
 }
 
@@ -245,6 +263,7 @@ function startupBaselines({ home, workspace, limit = BASELINE_SESSIONS }) {
     claude: baselineFrom('tokens', claudeSessions(home, workspace, options), limit),
     codex: baselineFrom('tokens', codexSessions(home, workspace, options), limit),
     kiro: baselineFrom('percent', kiroSessions(home, workspace, options), limit),
+    ...(openCodeInstalled(home) ? { opencode: baselineFrom('tokens', opencodeSessions(home, workspace, options), limit) } : {}),
   };
 }
 

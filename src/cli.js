@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { scanEnvironment, scanClaudeRuntime, scanCodexRuntime, scanKiroRuntime } = require('./scanner');
+const { isInstalled: openCodeInstalled, scanOpenCodeRuntime } = require('./opencode-scan');
 const { auditReport, formatAudit } = require('./audit');
 const { describeDryRun, formatMcpCost, mcpServerEntries, measureMcpCost } = require('./mcp-cost');
 const { annotateLoading } = require('./tool-loading');
@@ -176,6 +177,7 @@ function telemetrySummary(runtimes, profiles = {}) {
     claude: harnessTelemetry('claude', runtimes.claude, profiles),
     codex: harnessTelemetry('codex', runtimes.codex, profiles),
     kiro: harnessTelemetry('kiro', runtimes.kiro, profiles),
+    ...(runtimes.opencode ? { opencode: harnessTelemetry('opencode', runtimes.opencode, profiles) } : {}),
   };
 }
 
@@ -190,6 +192,7 @@ function telemetryReport(options, currentDirectory) {
       claude: scanClaudeRuntime(home, workspace),
       codex: scanCodexRuntime(home, workspace),
       kiro: scanKiroRuntime(home, workspace),
+      ...(openCodeInstalled(home) ? { opencode: scanOpenCodeRuntime(home, workspace) } : {}),
     }, readProfiles()),
   };
 }

@@ -19,6 +19,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { claudeMcpServerStates } = require('./claude-mcp');
+const { opencodeMcpEntries } = require('./opencode-scan');
 
 const DEFAULT_AUTO_PERCENT = 10;
 const KIRO_V2_MIN_PCT = 5;
@@ -96,6 +97,9 @@ function mcpLoading(harness, options = {}) {
   if (harness === 'claude') return claudeLoading(options);
   if (harness === 'codex') return deferred('Codex defers MCP tools behind tool search');
   if (harness === 'kiro') return kiroLoading(options);
+  if (harness === 'opencode') {
+    return options.codemode ? deferred('OpenCode Code Mode keeps MCP tools off the native tool list') : upfront('OpenCode lists these MCP tools natively');
+  }
   return upfront('deferred loading is not documented for this agent; counted as loaded');
 }
 
@@ -136,11 +140,13 @@ function annotateLoading(mcpCost, { home, workspace, env = process.env, contextW
   const effectiveClaudeEnv = claudeEnv(home, workspace, env);
   const claudeConfigs = new Map(claudeMcpServerStates(home, workspace).map((server) => [server.name, server.config]));
   const settings = kiroSettings(home, workspace);
+  const opencode = new Map(opencodeMcpEntries(home, workspace).map((entry) => [entry.name, entry]));
   const servers = mcpCost.servers.map((server) => ({
     ...server,
     loading: mcpLoading(server.harness, {
       env: effectiveClaudeEnv,
       settings,
+      codemode: server.harness === 'opencode' && opencode.get(server.name)?.codemode === true,
       alwaysLoad: claudeConfigs.get(server.name)?.alwaysLoad === true,
       totalTokens: harnessTotal(mcpCost.servers, server.harness),
       contextWindowTokens: contextWindows[server.harness] ?? null,

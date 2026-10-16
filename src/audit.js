@@ -8,7 +8,7 @@
 const { MEASURED_STATUS } = require('./mcp-cost');
 const { startupTokens } = require('./tool-loading');
 
-const HARNESS_LABELS = { claude: 'Claude Code', codex: 'Codex', kiro: 'Kiro' };
+const HARNESS_LABELS = { claude: 'Claude Code', codex: 'Codex', kiro: 'Kiro', opencode: 'OpenCode' };
 
 function bytesToTokens(bytes) {
   return Math.round((bytes || 0) / 4);
@@ -16,19 +16,21 @@ function bytesToTokens(bytes) {
 
 const SCOPE_LABELS = {
   global: 'global', project: 'project', ancestor: 'parent directories', local: 'local',
-  import: 'imports', rule: 'rules', steering: 'workspace steering',
+  import: 'imports', rule: 'rules', steering: 'workspace steering', config: 'instructions entries',
 };
-const INSTRUCTION_LABELS = { claude: 'Instructions and rules', codex: 'AGENTS.md instructions', kiro: 'Steering documents' };
+const INSTRUCTION_LABELS = { claude: 'Instructions and rules', codex: 'AGENTS.md instructions', kiro: 'Steering documents', opencode: 'Rules and instructions' };
 
 function describeInstructionFiles(instructions, harnessId) {
   const counts = new Map();
   for (const file of instructions.files) counts.set(file.scope, (counts.get(file.scope) || 0) + 1);
   const single = { user: 'user CLAUDE.md', ...(harnessId === 'codex' ? { global: 'global AGENTS.md' } : {}) };
-  const labels = { ...SCOPE_LABELS, ...(harnessId === 'kiro' ? { global: 'global steering' } : {}) };
+  const globalLabel = { kiro: 'global steering', opencode: 'global rules' }[harnessId];
+  const labels = { ...SCOPE_LABELS, ...(globalLabel ? { global: globalLabel } : {}) };
   const parts = [...counts].map(([scope, count]) => single[scope] || `${labels[scope] || scope} ${count}`);
   const notes = [];
   if (instructions.onDemand) notes.push(`${instructions.onDemand} more load on demand`);
   if (instructions.truncated && harnessId === 'codex') notes.push('cut at project_doc_max_bytes');
+  if (instructions.unmeasured) notes.push(`${instructions.unmeasured} URL or glob entr${instructions.unmeasured === 1 ? 'y' : 'ies'} not measured`);
   const count = instructions.files.length;
   return `${count} file${count === 1 ? '' : 's'}: ${parts.join(', ')}${notes.length ? `; ${notes.join('; ')}` : ''}`;
 }

@@ -61,6 +61,10 @@ function mcpSwitch(home, server, measured) {
     const key = TOML_BARE_KEY.test(server.name) ? server.name : `"${server.name}"`;
     return { ...base, format: 'toml', file: path.join(home, '.codex', 'config.toml'), section: `mcp_servers.${key}` };
   }
+  if (server.harness === 'opencode') {
+    // OpenCode configs are often JSONC; config-edit refuses those rather than lose comments.
+    return { ...base, format: 'manual', file: null, instruction: 'set "enabled": false (or "disabled": true under mcp.servers) on it in opencode.json' };
+  }
   return { ...base, format: 'json', file: path.join(home, '.kiro', 'settings', 'mcp.json') };
 }
 

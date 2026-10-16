@@ -14,6 +14,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { claudeMcpServerStates } = require('./claude-mcp');
+const { opencodeMcpEntries } = require('./opencode-scan');
 
 const PROTOCOL_VERSION = '2025-06-18';
 // A misbehaving server must not be able to exhaust our memory.
@@ -132,7 +133,7 @@ function codexEntries(home) {
 /// Every configured server, on or off. `fix` needs the off ones to turn them back on.
 /// Claude's local and project scopes depend on the workspace; the others do not.
 function configuredMcpServers(home, workspace = process.cwd()) {
-  return [...claudeEntries(home, workspace), ...codexEntries(home), ...kiroEntries(home)];
+  return [...claudeEntries(home, workspace), ...codexEntries(home), ...kiroEntries(home), ...opencodeMcpEntries(home, workspace)];
 }
 
 /// Only the servers that are on. These are what `mcp-scan` may start.
