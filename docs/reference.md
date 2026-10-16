@@ -77,6 +77,8 @@ Claude Code 2.1.300+ writes an `api-request-shape` row per request: the system p
 
 The audit's first line is measured, not estimated: the input context of the first request in each of the last 10 sessions per agent (`BASELINE_SESSIONS` in `src/session-history.js`), skipping sessions whose first request follows a compaction. Lowest, median, and latest are kept; the audit prints the lowest. It includes the agent's built-in prompt and tools and the first user message, which is why it is larger than the estimate of your setup. Kiro records a percentage only, so its value stays a percentage. Without session logs the headline falls back to the estimate.
 
+Drift: when the newest start is at least 15% and 2,000 tokens (1 point for Kiro) above the median of the earlier starts, with at least two earlier ones, the audit prints `latest session started at X, up from Y`. Claude (`version` on each row) and Codex (`session_meta.cli_version`) record the agent version per session; when it differs between the newest start and the one before, the version change is printed with it, as the likeliest cause.
+
 ## fix
 
 `ctxmeter fix` lists switches that would free measured tokens, ranked by saving. It writes nothing. `--apply <target>` flips exactly one, after copying the file to `<name>.ctxmeter-<timestamp>.bak` in the same directory and printing a `cp` command that restores it.
