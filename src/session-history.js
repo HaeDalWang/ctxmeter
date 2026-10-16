@@ -18,6 +18,9 @@ const HISTORY_DAYS = 7;
 const TOP_SESSIONS = 5;
 const MAX_SAMPLES = 60;
 const BASELINE_SESSIONS = 10;
+// A start this much above the earlier median is reported as drift.
+const DRIFT_RATIO = 1.15;
+const DRIFT_MIN = { tokens: 2_000, percent: 1 };
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 function mtime(file) {
@@ -50,10 +53,12 @@ function collector(read, { firstOnly = false } = {}) {
   const samples = [];
   let pendingCompaction = false;
   let model = null;
+  let version = null;
   const visit = (row) => {
     const step = read(row);
     if (!step) return true;
     if (step.model) model = step.model;
+    if (step.version && !version) version = step.version;
     if (step.compaction) pendingCompaction = true;
     if (Number.isFinite(step.value) && step.value > 0) {
       samples.push({ at: step.at || null, value: step.value, compactedBefore: pendingCompaction });
@@ -62,7 +67,7 @@ function collector(read, { firstOnly = false } = {}) {
     }
     return true;
   };
-  return { visit, result: () => ({ samples, model }) };
+  return { visit, result: () => ({ samples, model, version }) };
 }
 
 function collect(rows, read) {
@@ -86,12 +91,14 @@ function claudeRow(row) {
   return {
     at: row.timestamp,
     model,
+    version: typeof row.version === 'string' ? row.version : null,
     value: number(usage.input_tokens) + number(usage.cache_creation_input_tokens) + number(usage.cache_read_input_tokens),
   };
 }
 
 function codexRow(row) {
   if (row.type === 'compacted') return { compaction: true };
+  if (row.type === 'session_meta') return { version: row.payload?.cli_version || null };
   if (row.type === 'turn_context' && typeof row.payload?.model === 'string') return { model: row.payload.model };
   if (row.type !== 'token_usage_record') return null;
   return { at: row.timestamp, value: row.payload?.usage?.input_tokens };
@@ -108,6 +115,7 @@ function kiroIdeRow(row) {
 function fromFile(file, read, id, model, options = {}) {
   const collected = collectFile(file, read, options);
   const entry = session(id, model || collected.model, collected.samples);
+  if (entry) entry.version = collected.version;
   if (entry && options.firstOnly) entry.updatedAt = new Date(mtime(file)).toISOString();
   return entry;
 }
@@ -210,10 +218,23 @@ function baselineFrom(unit, sessions, limit = BASELINE_SESSIONS) {
     .filter((entry) => entry?.samples?.length && !entry.samples[0].compactedBefore)
     .sort((left, right) => time(right.updatedAt) - time(left.updatedAt))
     .slice(0, limit)
-    .map((entry) => ({ id: entry.id, at: entry.samples[0].at, value: entry.samples[0].value }));
+    .map((entry) => ({ id: entry.id, at: entry.samples[0].at, value: entry.samples[0].value, version: entry.version || null }));
   if (!starts.length) return null;
   const values = starts.map((start) => start.value);
-  return { unit, sessions: starts.length, lowest: Math.min(...values), median: median(values), latest: starts[0] };
+  return { unit, sessions: starts.length, lowest: Math.min(...values), median: median(values), latest: starts[0], drift: drift(unit, starts) };
+}
+
+/// The newest start against the median of the earlier ones. Needs two earlier
+/// starts so one odd session cannot set the reference. The version pair is kept
+/// only when it changed, since that is the likeliest cause of a jump.
+function drift(unit, starts) {
+  const [latest, ...earlier] = starts;
+  if (earlier.length < 2) return null;
+  const from = median(earlier.map((start) => start.value));
+  if (latest.value - from < DRIFT_MIN[unit] || latest.value < from * DRIFT_RATIO) return null;
+  const versionFrom = earlier[0].version;
+  const changed = versionFrom && latest.version && versionFrom !== latest.version;
+  return { from, to: latest.value, versionFrom: changed ? versionFrom : null, versionTo: changed ? latest.version : null };
 }
 
 /// Only the first sample of each file is read, and only the newest few files:

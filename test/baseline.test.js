@@ -44,7 +44,8 @@ test('the baseline is the first request of each session: lowest, median, and the
   const baseline = baselineFrom('tokens', sessions);
   assert.deepEqual(baseline, {
     unit: 'tokens', sessions: 3, lowest: 20_000, median: 25_000,
-    latest: { id: 'b', at: '2026-09-22T00:00:00Z', value: 20_000 },
+    latest: { id: 'b', at: '2026-09-22T00:00:00Z', value: 20_000, version: null },
+    drift: null,
   });
 });
 
@@ -133,4 +134,52 @@ test('audit without session logs keeps the estimate as its headline', () => {
   const text = formatAudit(auditReport(snapshot, { profiles: [] }));
   assert.match(text, /^Your agent setup costs 3,000 tokens before you type anything\./);
   assert.doesNotMatch(text, /session start/);
+});
+
+test('a session start well above the earlier ones is flagged, with the agent version change', () => {
+  const at = (day) => `2026-10-${String(day).padStart(2, '0')}T00:00:00Z`;
+  const entry = (id, day, value, version) => ({ ...session(id, at(day), [value]), version });
+  const baseline = baselineFrom('tokens', [
+    entry('a', 10, 30_000, '2.1.290'),
+    entry('b', 11, 31_000, '2.1.290'),
+    entry('c', 12, 29_000, '2.1.291'),
+    entry('new', 14, 38_000, '2.1.301'),
+  ]);
+  assert.deepEqual(baseline.drift, { from: 30_000, to: 38_000, versionFrom: '2.1.291', versionTo: '2.1.301' });
+});
+
+test('small movements and a single session are not drift', () => {
+  const at = (day) => `2026-10-${String(day).padStart(2, '0')}T00:00:00Z`;
+  const entry = (id, day, value) => session(id, at(day), [value]);
+  assert.equal(baselineFrom('tokens', [entry('a', 1, 30_000), entry('b', 2, 31_000)]).drift, null);
+  assert.equal(baselineFrom('tokens', [entry('only', 1, 30_000)]).drift, null);
+  // A drop is good news, not drift.
+  assert.equal(baselineFrom('tokens', [entry('a', 1, 30_000), entry('b', 2, 30_000), entry('c', 3, 10_000)]).drift, null);
+});
+
+test('audit prints the rise and the version change under the agent', () => {
+  const { auditReport, formatAudit } = require('../src/audit');
+  const snapshot = { target: {}, harnesses: { claude: { alwaysOn: { claudeMd: { tokenEstimate: 3_000 } }, skillGroups: [] } } };
+  const baselines = { claude: {
+    unit: 'tokens', sessions: 4, lowest: 29_000, median: 30_500, latest: { id: 'n', value: 38_000 },
+    drift: { from: 30_000, to: 38_000, versionFrom: '2.1.291', versionTo: '2.1.301' },
+  } };
+  const text = formatAudit(auditReport(snapshot, {}, null, baselines));
+  assert.match(text, /^ {2}latest session started at 38,000 tokens, up from 30,000 \(Claude Code 2\.1\.291 → 2\.1\.301\)$/m);
+});
+
+test('Claude and Codex logs give each session its agent version', () => {
+  const { home, workspace } = fixture();
+  const directory = path.join(home, '.claude', 'projects', workspace.replace(/[^A-Za-z0-9]/g, '-'));
+  writeLines(path.join(directory, 's.jsonl'), [claudeTurn('2026-10-16T00:00:00Z', 10_000, { version: '2.1.301' })]);
+  const codexFile = path.join(home, '.codex', 'sessions', '2026', '10', '16', 'rollout.jsonl');
+  writeLines(codexFile, [
+    { type: 'session_meta', payload: { cwd: workspace, cli_version: '0.163.0' } },
+    { type: 'token_usage_record', timestamp: '2026-10-16T00:00:00Z', payload: { usage: { input_tokens: 9_000 } } },
+  ]);
+
+  const { claude, codex } = startupBaselines({ home, workspace });
+
+  assert.equal(claude.latest.version, '2.1.301');
+  assert.equal(codex.latest.version, '0.163.0');
 });

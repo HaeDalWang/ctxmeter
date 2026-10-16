@@ -261,6 +261,14 @@ function formatAudit(report) {
       lines.push(`  ${integer(tokens)} tokens of MCP schemas (${servers} server${servers === 1 ? '' : 's'}, ${tools} tools) load only on use`);
     }
     if (harness.sentPrompt) lines.push(`  ${sentPromptLine(harness.sentPrompt)}`);
+    const rise = harness.observedStart?.drift;
+    if (rise) {
+      const isPercent = harness.observedStart.unit === 'percent';
+      const to = isPercent ? `${rise.to.toFixed(1)}% of the window` : `${integer(rise.to)} tokens`;
+      const from = isPercent ? `${rise.from.toFixed(1)}%` : integer(rise.from);
+      const versions = rise.versionFrom ? ` (${harness.label} ${rise.versionFrom} → ${rise.versionTo})` : '';
+      lines.push(`  latest session started at ${to}, up from ${from}${versions}`);
+    }
     if (harness.observedStart) {
       const { sessions } = harness.observedStart;
       lines.push(`  session start: ${observedValue(harness.observedStart)} observed (lowest of ${sessions} session${sessions === 1 ? '' : 's'}, incl. first message)`);
