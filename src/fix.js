@@ -38,11 +38,32 @@ function shellQuote(value) {
   return `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
+/// Writes beside the target and renames over it, so a reader never sees half a
+/// file. Keeps the original's mode: configs holding tokens are often 0600.
+function replaceFile(file, content) {
+  // Rename would replace a symlink with a plain file; write where it points.
+  const target = fs.realpathSync(file);
+  const temp = path.join(path.dirname(target), `.${path.basename(target)}.ctxmeter-${process.pid}.tmp`);
+  try {
+    fs.writeFileSync(temp, content, { mode: fs.statSync(target).mode & 0o777 });
+    fs.renameSync(temp, target);
+  } catch (error) {
+    fs.rmSync(temp, { force: true });
+    throw error;
+  }
+}
+
 function applyPlan(plan, now = new Date()) {
   if (!plan.changed) throw new Error(`${plan.proposal.target} is already switched ${plan.enabled ? 'on' : 'off'}; nothing to do`);
+  // The agent may rewrite its config while running. Writing a plan made from an
+  // older read would silently drop that change, so refuse instead.
+  const current = fs.readFileSync(plan.file, 'utf8');
+  if (typeof plan.before === 'string' && current !== plan.before) {
+    throw new Error(`${plan.file} changed since it was read; nothing was written. Run the command again.`);
+  }
   const backup = backupPath(plan.file, now);
   fs.copyFileSync(plan.file, backup);
-  fs.writeFileSync(plan.file, plan.after);
+  replaceFile(plan.file, plan.after);
   return {
     target: plan.proposal.target,
     file: plan.file,
@@ -58,7 +79,7 @@ function formatProposals(proposals) {
     return [
       'Nothing here can be switched off from a config file.',
       '',
-      'MCP servers are usually the largest removable cost, and measuring them needs:',
+      'MCP servers that load at startup can be offered once they are measured:',
       '  ctxmeter mcp-scan --i-understand-this-launches-servers',
       '',
       'Instructions, rules, and steering documents are your own writing, so ctxmeter',

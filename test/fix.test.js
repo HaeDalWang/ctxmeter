@@ -318,3 +318,54 @@ test('a cached cost for a server no longer configured is not offered', () => {
   // Assert
   assert.deepEqual(targets, ['codex/kept']);
 });
+
+test('applying is refused when the agent rewrote the file after planning', () => {
+  // Arrange
+  const home = fixtureHome();
+  const file = write(home, '.codex/config.toml', '[mcp_servers.x]\ncommand = "a"\n');
+  const mcpCost = mcpCostFor(home, [{ harness: 'codex', name: 'x', status: MEASURED_STATUS, toolCount: 1, estimatedTokens: 100 }]);
+  const [proposal] = fixProposals({ home, snapshot: snapshotFor(home), mcpCost });
+  const plan = planProposal(proposal);
+  const rewritten = '[mcp_servers.x]\ncommand = "a"\n\n[projects."/repo"]\ntrust_level = "trusted"\n';
+  fs.writeFileSync(file, rewritten);
+
+  // Act & Assert
+  assert.throws(() => applyPlan(plan), /changed since/i);
+  assert.equal(fs.readFileSync(file, 'utf8'), rewritten, 'the agent\'s change survives');
+  assert.deepEqual(fs.readdirSync(path.dirname(file)).filter((name) => name !== 'config.toml'), [], 'no backup or temp file is left');
+});
+
+test('applying replaces the file in one step and keeps its permissions', () => {
+  // Arrange
+  const home = fixtureHome();
+  const file = write(home, '.codex/config.toml', '[mcp_servers.x]\ncommand = "a"\n');
+  fs.chmodSync(file, 0o600);
+  const mcpCost = mcpCostFor(home, [{ harness: 'codex', name: 'x', status: MEASURED_STATUS, toolCount: 1, estimatedTokens: 100 }]);
+  const [proposal] = fixProposals({ home, snapshot: snapshotFor(home), mcpCost });
+
+  // Act
+  const result = applyPlan(planProposal(proposal));
+
+  // Assert
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  const leftovers = fs.readdirSync(path.dirname(file)).filter((name) => name !== 'config.toml' && name !== path.basename(result.backup));
+  assert.deepEqual(leftovers, [], 'no temp file is left behind');
+});
+
+test('applying through a symlinked config edits the target and keeps the link', () => {
+  // Arrange: dotfile managers keep the real file elsewhere and link it in.
+  const home = fixtureHome();
+  const real = write(home, 'dotfiles/codex-config.toml', '[mcp_servers.x]\ncommand = "a"\n');
+  fs.mkdirSync(path.join(home, '.codex'), { recursive: true });
+  const link = path.join(home, '.codex', 'config.toml');
+  fs.symlinkSync(real, link);
+  const mcpCost = mcpCostFor(home, [{ harness: 'codex', name: 'x', status: MEASURED_STATUS, toolCount: 1, estimatedTokens: 100 }]);
+  const [proposal] = fixProposals({ home, snapshot: snapshotFor(home), mcpCost });
+
+  // Act
+  applyPlan(planProposal(proposal));
+
+  // Assert
+  assert.ok(fs.lstatSync(link).isSymbolicLink(), 'the link is still a link');
+  assert.match(fs.readFileSync(real, 'utf8'), /^enabled = false$/m);
+});
