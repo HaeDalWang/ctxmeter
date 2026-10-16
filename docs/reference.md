@@ -69,6 +69,17 @@ Claude's env is the shell's, overlaid by `env` in `~/.claude/settings.json`, `<w
 
 Files are deduplicated by real path, so a `CLAUDE.md` symlinked to `AGENTS.md` counts once.
 
+## OpenCode
+
+`src/opencode-scan.js`, docs checked 2026-10-16. Present only when `~/.config/opencode` or `~/.local/share/opencode/opencode.db` exists.
+
+- Config: `~/.config/opencode/opencode.json(c)`, then `<workspace>/opencode.json(c)`; JSONC comments and trailing commas are accepted. Not read: remote `.well-known/opencode`, `OPENCODE_CONFIG*`, managed config, `XDG_CONFIG_HOME`.
+- Rules ([docs](https://opencode.ai/docs/rules/)): the nearest directory from the workspace up with `AGENTS.md` (else `CLAUDE.md`); `~/.config/opencode/AGENTS.md`, else `~/.claude/CLAUDE.md`; literal `instructions` paths. URLs and globs are counted as unmeasured. `OPENCODE_DISABLE_CLAUDE_CODE*` is honoured.
+- Skills ([docs](https://opencode.ai/docs/skills/)): `skills/*/SKILL.md` under `~/.config/opencode`, `~/.claude`, `~/.agents`, and the workspace's `.opencode`, `.claude`, `.agents`. The walk up to the git worktree is not modelled.
+- MCP: V1 `mcp.<name>` with `enabled`; V2 `mcp.servers.<name>` with `disabled` and `codemode` (default true, counted as deferred). `mcp-scan` measures them; `fix` lists them with a manual step, because these configs are often JSONC and config-edit refuses to rewrite comments.
+- Sessions: `session` and `message` tables, read with `node:sqlite` in read-only mode. Top-level sessions only (`parent_id is null`); a message's context is `tokens.input + cache.read + cache.write`; a `summary` message marks a compaction. This is why Node 22.13 is the floor. The ExperimentalWarning node:sqlite prints is suppressed for that one call.
+
+
 ## Claude's own prompt
 
 Claude Code 2.1.300+ writes an `api-request-shape` row per request: the system prompt blocks and every tool definition. `src/claude-prompt.js` takes the newest one from the workspace's five most recent sessions and keeps sizes only: system prompt, built-in tools, MCP tools per server, deferred-tool placeholders. Lines are matched for `"type":"api-request-shape"` on raw bytes before parsing, so `api-request-blob` rows, which carry message content, are never decoded. In `details`, this splits the agent's own share out of the remainder as an `agent` segment.

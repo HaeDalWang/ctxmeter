@@ -7,9 +7,9 @@
 <p align="center">
   <a href="LICENSE"><img alt="MIT" src="https://img.shields.io/badge/license-MIT-6e5aff?style=flat-square"></a>
   <a href="https://www.npmjs.com/package/ctxmeter"><img alt="npm" src="https://img.shields.io/npm/v/ctxmeter?style=flat-square&color=cb3837"></a>
-  <img alt="Node 20+" src="https://img.shields.io/badge/node-20%2B-1f9d55?style=flat-square">
+  <img alt="Node 22.13+" src="https://img.shields.io/badge/node-22.13%2B-1f9d55?style=flat-square">
   <img alt="no telemetry" src="https://img.shields.io/badge/telemetry-none-0a0a0c?style=flat-square">
-  <img alt="Claude Code, Codex, Kiro" src="https://img.shields.io/badge/agents-Claude%20Code%20%7C%20Codex%20%7C%20Kiro-2ec7b6?style=flat-square">
+  <img alt="Claude Code, Codex, Kiro, OpenCode" src="https://img.shields.io/badge/agents-Claude%20Code%20%7C%20Codex%20%7C%20Kiro%20%7C%20OpenCode-2ec7b6?style=flat-square">
 </p>
 
 ```bash
@@ -22,7 +22,7 @@ npx ctxmeter
 
 ## 빠른 시작
 
-Node 20+. `npx ctxmeter`는 설치 없이 최신 릴리즈를 실행하고, `npm i -g ctxmeter`로 PATH에 둘 수도 있습니다. 아래의 `ctxmeter`는 둘 중 어느 쪽이든 뜻합니다.
+Node 22.13+. `npx ctxmeter`는 설치 없이 최신 릴리즈를 실행하고, `npm i -g ctxmeter`로 PATH에 둘 수도 있습니다. 아래의 `ctxmeter`는 둘 중 어느 쪽이든 뜻합니다.
 
 ```bash
 # 1. 지금 내 설정이 얼마나 먹고 있나?
@@ -45,7 +45,7 @@ ctxmeter --help
 
 ```bash
 xcode-select --install     # Swift 커맨드라인 도구; 이미 있으면 생략
-brew install node          # node 20+가 이미 있으면 생략
+brew install node          # node 22.13+가 이미 있으면 생략
 git clone https://github.com/HaeDalWang/ctxmeter.git && cd ctxmeter
 ./scripts/ctxmeter-bar.sh install
 ```
@@ -64,13 +64,13 @@ git clone https://github.com/HaeDalWang/ctxmeter.git && cd ctxmeter
 
 **플러그인 번들을 깔고 잊어버렸습니다.** 스킬 그룹 하나에 스킬이 수백 개 들어 있을 수 있고, 각각의 frontmatter가 시작 때 로드됩니다. ctxmeter는 순위를 매겨 가장 큰 것을 첫 줄에 보여줍니다.
 
-**에이전트를 여러 개 씁니다.** Claude Code, Codex, Kiro는 스킬·규칙·훅·MCP 설정을 각자 다른 구조로 둡니다. 셋을 모두 읽어 나란히 보여주고, 에이전트마다 실측한 세션 시작값을 추정치 옆에 둡니다.
+**에이전트를 여러 개 씁니다.** Claude Code, Codex, Kiro, OpenCode는 스킬·규칙·훅·MCP 설정을 각자 다른 구조로 둡니다. 모두 읽어 나란히 보여주고, 에이전트마다 실측한 세션 시작값을 추정치 옆에 둡니다. OpenCode는 아직 CLI만 지원합니다. MCP 서버는 `opencode.json`에서 직접 끄고, 메뉴바에는 아직 나오지 않습니다.
 
 ## MCP 측정
 
 MCP 도구 스키마는 **실제 프롬프트 안에만** 존재합니다 — 로컬 파일 어디에도 없습니다. 그래서 정직하게 재려면 각 서버를 띄워서 물어봐야 합니다.
 
-시작 비용이 되는지는 에이전트마다 다릅니다. Claude Code, Codex, Kiro(IDE 1.3+, CLI V3 세션)는 모두 기본적으로 MCP 도구를 tool search 뒤에 두고, 모델이 찾을 때만 스키마를 로드합니다. Kiro CLI V2는 `toolSearch.enabled`를 켜지 않으면 미리 로드합니다. Claude는 `ENABLE_TOOL_SEARCH=false`, 서드파티 프록시를 가리키는 `ANTHROPIC_BASE_URL`, `alwaysLoad`로 표시한 서버가 있으면 다시 전부 미리 로드합니다. ctxmeter는 이 설정을 읽어 로드분과 지연분을 따로 보고합니다.
+시작 비용이 되는지는 에이전트마다 다릅니다. Claude Code, Codex, Kiro(IDE 1.3+, CLI V3 세션)는 모두 기본적으로 MCP 도구를 tool search 뒤에 두고, 모델이 찾을 때만 스키마를 로드합니다. Kiro CLI V2는 `toolSearch.enabled`를 켜지 않으면 미리 로드합니다. Claude는 `ENABLE_TOOL_SEARCH=false`, 서드파티 프록시를 가리키는 `ANTHROPIC_BASE_URL`, `alwaysLoad`로 표시한 서버가 있으면 다시 전부 미리 로드합니다. OpenCode V2 설정은 서버마다 기본으로 Code Mode를 써서 도구를 기본 도구 목록에 올리지 않습니다. V1 설정과 `codemode: false`는 그대로 올립니다. ctxmeter는 이 설정을 읽어 로드분과 지연분을 따로 보고합니다.
 
 읽기 전용 약속과 충돌하므로 명시적 플래그가 필요한 별도 명령입니다.
 
@@ -201,7 +201,7 @@ Swift와 SwiftPM만 필요하고 Xcode 전체는 필요 없습니다. 에이전�
 
 ## 요구 사항
 
-Node 20+. 메뉴바 앱은 macOS 14+와 Swift 툴체인이 필요하며, Xcode 전체는 필요 없습니다.
+Node 22.13+. 메뉴바 앱은 macOS 14+와 Swift 툴체인이 필요하며, Xcode 전체는 필요 없습니다.
 
 macOS에서 테스트했습니다. Linux도 동작할 것이며 Node 쪽은 CI가 검증합니다. Windows용 `mcp-scan`은 구현했지만 검증하지 않았습니다.
 

@@ -7,9 +7,9 @@
 <p align="center">
   <a href="LICENSE"><img alt="MIT" src="https://img.shields.io/badge/license-MIT-6e5aff?style=flat-square"></a>
   <a href="https://www.npmjs.com/package/ctxmeter"><img alt="npm" src="https://img.shields.io/npm/v/ctxmeter?style=flat-square&color=cb3837"></a>
-  <img alt="Node 20+" src="https://img.shields.io/badge/node-20%2B-1f9d55?style=flat-square">
+  <img alt="Node 22.13+" src="https://img.shields.io/badge/node-22.13%2B-1f9d55?style=flat-square">
   <img alt="no telemetry" src="https://img.shields.io/badge/telemetry-none-0a0a0c?style=flat-square">
-  <img alt="Claude Code, Codex, Kiro" src="https://img.shields.io/badge/agents-Claude%20Code%20%7C%20Codex%20%7C%20Kiro-2ec7b6?style=flat-square">
+  <img alt="Claude Code, Codex, Kiro, OpenCode" src="https://img.shields.io/badge/agents-Claude%20Code%20%7C%20Codex%20%7C%20Kiro%20%7C%20OpenCode-2ec7b6?style=flat-square">
 </p>
 
 ```bash
@@ -22,7 +22,7 @@ Skills, rule files, steering docs, hooks, and MCP servers all load at session st
 
 ## Quickstart
 
-Node 20+. `npx ctxmeter` runs the latest release with nothing installed; `npm i -g ctxmeter` keeps it on your PATH. Below, `ctxmeter` stands for either.
+Node 22.13+. `npx ctxmeter` runs the latest release with nothing installed; `npm i -g ctxmeter` keeps it on your PATH. Below, `ctxmeter` stands for either.
 
 ```bash
 # 1. What does my setup cost right now?
@@ -45,7 +45,7 @@ ctxmeter --help
 
 ```bash
 xcode-select --install     # Swift command line tools; skip if already installed
-brew install node          # skip if node 20+ is already installed
+brew install node          # skip if node 22.13+ is already installed
 git clone https://github.com/HaeDalWang/ctxmeter.git && cd ctxmeter
 ./scripts/ctxmeter-bar.sh install
 ```
@@ -64,13 +64,13 @@ Measure, then act. Two surfaces over the same numbers: the CLI for a one-shot au
 
 **You installed a plugin bundle and forgot.** One skill group can list hundreds of skills, and every one contributes frontmatter at startup. ctxmeter ranks them so the biggest is the first line you read.
 
-**You run more than one agent.** Claude Code, Codex, and Kiro each keep their own skills, rules, hooks, and MCP config in their own layout. This reads all three and puts them side by side, with each agent's observed session start next to its estimate.
+**You run more than one agent.** Claude Code, Codex, Kiro, and OpenCode each keep their own skills, rules, hooks, and MCP config in their own layout. This reads all of them and puts them side by side, with each agent's observed session start next to its estimate. OpenCode is CLI-only for now: its MCP servers are switched off in `opencode.json` by hand, and the menu bar does not show it yet.
 
 ## Measuring MCP
 
 MCP tool schemas exist **only in the live prompt** — no local file contains them. So measuring honestly means starting each server and asking it.
 
-Whether they cost anything at startup depends on the agent. Claude Code, Codex, and Kiro (IDE 1.3+, CLI V3 sessions) all keep MCP tools behind a tool search by default and load a schema only when the model looks for it. Kiro CLI V2 preloads them unless `toolSearch.enabled` is set; Claude loads everything upfront again if you set `ENABLE_TOOL_SEARCH=false`, point `ANTHROPIC_BASE_URL` at a third-party proxy, or mark a server `alwaysLoad`. ctxmeter reads those settings and reports loaded and deferred separately.
+Whether they cost anything at startup depends on the agent. Claude Code, Codex, and Kiro (IDE 1.3+, CLI V3 sessions) all keep MCP tools behind a tool search by default and load a schema only when the model looks for it. Kiro CLI V2 preloads them unless `toolSearch.enabled` is set; Claude loads everything upfront again if you set `ENABLE_TOOL_SEARCH=false`, point `ANTHROPIC_BASE_URL` at a third-party proxy, or mark a server `alwaysLoad`. OpenCode's V2 config defaults each server to Code Mode, which keeps its tools off the native tool list; V1 configs and `codemode: false` list them natively. ctxmeter reads those settings and reports loaded and deferred separately.
 
 That contradicts a read-only promise, so it is a separate command behind an explicit flag:
 
@@ -201,7 +201,7 @@ Instruction files follow each agent's documented discovery, not just the global 
 
 ## Requirements
 
-Node 20+. The menu bar app needs macOS 14+ and the Swift toolchain; full Xcode is not required.
+Node 22.13+. The menu bar app needs macOS 14+ and the Swift toolchain; full Xcode is not required.
 
 Tested on macOS. Linux should work and is covered by CI for the Node side. Windows support for `mcp-scan` is implemented but unverified.
 

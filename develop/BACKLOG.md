@@ -56,7 +56,7 @@
 
 ## P1 — 청중 넓히기 (하네스 = 시장)
 
-### P1-1. OpenCode 지원 · M
+### P1-1. OpenCode 지원 · M · ✅ CLI 완료 (v0.3.0, `execution/14`) · 메뉴바 탭과 `fix` 자동 편집은 남음
 - opencode ★210K. 우리가 지원하는 세 하네스 청중을 합친 것보다 크다. abtop(★3.6K)이 이미 지원한다.
 - 설정 구조(skills·rules·MCP·AGENTS.md)와 세션 저장 방식(sqlite)을 조사한 뒤 adapter를 추가한다.
 
