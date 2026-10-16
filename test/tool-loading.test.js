@@ -4,7 +4,7 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 
-const { annotateLoading, claudeLoading, mcpLoading, startupTokens } = require('../src/tool-loading');
+const { annotateLoading, claudeLoading, kiroLoading, mcpLoading, startupTokens } = require('../src/tool-loading');
 const { MEASURED_STATUS } = require('../src/mcp-cost');
 
 function fixtureHome() {
@@ -51,11 +51,41 @@ test('a Claude server with alwaysLoad is loaded up front even when others are de
   assert.equal(claudeLoading({ env: {}, alwaysLoad: true }).mode, 'upfront');
 });
 
-test('Codex always defers MCP tools; Kiro is counted as loaded because nothing documents deferral', () => {
+test('Codex always defers MCP tools', () => {
   assert.equal(mcpLoading('codex', {}).mode, 'deferred');
-  const kiro = mcpLoading('kiro', {});
-  assert.equal(kiro.mode, 'upfront');
-  assert.match(kiro.reason, /not documented/);
+});
+
+test('Kiro defers MCP tools by default: IDE 1.3+ and CLI V3 sessions', () => {
+  assert.equal(kiroLoading({ settings: {} }).mode, 'deferred');
+  assert.equal(kiroLoading({ settings: { 'chat.agentEngine': 'v3' } }).mode, 'deferred');
+  assert.equal(mcpLoading('kiro', {}).mode, 'deferred');
+});
+
+test('Kiro CLI V2 loads MCP tools up front unless toolSearch is enabled', () => {
+  assert.equal(kiroLoading({ settings: { 'chat.agentEngine': 'v2' } }).mode, 'upfront');
+  assert.equal(kiroLoading({ settings: { 'chat.agentEngine': 'v2', 'toolSearch.enabled': false } }).mode, 'upfront');
+});
+
+test('Kiro CLI V2 with toolSearch defers once either threshold is crossed', () => {
+  const base = { 'chat.agentEngine': 'v2', 'toolSearch.enabled': true };
+  // Defaults: 5% of the window or 50,000 tokens.
+  assert.equal(kiroLoading({ settings: base, totalTokens: 9_000, contextWindowTokens: 1_000_000 }).mode, 'upfront');
+  assert.equal(kiroLoading({ settings: base, totalTokens: 9_000, contextWindowTokens: 100_000 }).mode, 'deferred');
+  assert.equal(kiroLoading({ settings: base, totalTokens: 60_000, contextWindowTokens: null }).mode, 'deferred');
+  // Both thresholds at zero: always on.
+  const always = { ...base, 'toolSearch.minPct': 0, 'toolSearch.minTokens': 0 };
+  assert.equal(kiroLoading({ settings: always, totalTokens: 10, contextWindowTokens: null }).mode, 'deferred');
+});
+
+test('annotateLoading reads the Kiro engine from cli.json, workspace over global', () => {
+  const home = fixtureHome();
+  const workspace = path.join(home, 'repo');
+  fs.mkdirSync(workspace);
+  write(home, '.kiro/settings/cli.json', JSON.stringify({ 'chat.agentEngine': 'v3' }));
+  write(workspace, '.kiro/settings/cli.json', JSON.stringify({ 'chat.agentEngine': 'v2' }));
+  const cost = { servers: [{ harness: 'kiro', name: 'pw', status: MEASURED_STATUS, estimatedTokens: 4_000 }] };
+  const annotated = annotateLoading(cost, { home, workspace, env: {} });
+  assert.equal(annotated.servers[0].loading.mode, 'upfront');
 });
 
 test('annotateLoading reads Claude env from settings.json and alwaysLoad from the server config', () => {
@@ -81,8 +111,8 @@ test('annotateLoading reads Claude env from settings.json and alwaysLoad from th
   assert.equal(byName.lazy.loading.mode, 'deferred');
   assert.equal(byName.eager.loading.mode, 'upfront');
   assert.equal(byName.graph.loading.mode, 'deferred');
-  assert.equal(byName.pw.loading.mode, 'upfront');
-  assert.deepEqual(annotated.servers.map(startupTokens), [500, 0, 0, 4_000]);
+  assert.equal(byName.pw.loading.mode, 'deferred');
+  assert.deepEqual(annotated.servers.map(startupTokens), [500, 0, 0, 0]);
   // The input is not modified.
   assert.equal(cost.servers[0].loading, undefined);
 });

@@ -12,13 +12,18 @@
 //           keeps it off; a server's `alwaysLoad: true` loads it up front.
 //   Codex   codex-rs/features/src/lib.rs: tool_search is always enabled and MCP
 //           tools are always deferred when tool_search is available.
-//   Kiro    nothing documents deferral, so its schemas are counted as loaded.
+//   Kiro    https://kiro.dev/docs/mcp/tool-search/ (2026-10-13): IDE 1.3+ and
+//           CLI V3 sessions (2.31+) defer by default; CLI V2 only with
+//           toolSearch.enabled, past 5% of the window or 50,000 tokens.
 
 const fs = require('node:fs');
 const path = require('node:path');
 const { claudeMcpServerStates } = require('./claude-mcp');
 
 const DEFAULT_AUTO_PERCENT = 10;
+const KIRO_V2_MIN_PCT = 5;
+const KIRO_V2_MIN_TOKENS = 50_000;
+const KIRO_LEGACY_ENGINES = new Set(['v1', 'v2']);
 const FIRST_PARTY_HOSTS = new Set(['api.anthropic.com']);
 
 const upfront = (reason) => ({ mode: 'upfront', reason });
@@ -66,9 +71,31 @@ function claudeLoading({ env = {}, alwaysLoad = false, totalTokens = null, conte
   return deferred('Claude Code defers MCP tools behind tool search by default');
 }
 
-function mcpLoading(harness, options) {
+function finiteOr(value, fallback) {
+  return Number.isFinite(value) ? value : fallback;
+}
+
+/// Kiro settings are flat dotted keys in cli.json. The engine decides the
+/// default: V3 (and the IDE) defer, V2 needs toolSearch.enabled and a threshold.
+function kiroLoading({ settings = {}, totalTokens = null, contextWindowTokens = null }) {
+  const engine = String(settings['chat.agentEngine'] || '').toLowerCase();
+  if (!KIRO_LEGACY_ENGINES.has(engine)) return deferred('Kiro IDE and CLI V3 sessions load MCP tools on demand');
+  if (settings['toolSearch.enabled'] !== true) return upfront(`Kiro CLI ${engine} preloads MCP tools unless toolSearch.enabled is set`);
+  const minPct = finiteOr(settings['toolSearch.minPct'], KIRO_V2_MIN_PCT);
+  const minTokens = finiteOr(settings['toolSearch.minTokens'], KIRO_V2_MIN_TOKENS);
+  if (minPct === 0 && minTokens === 0) return deferred('Kiro toolSearch thresholds are 0, so it is always on');
+  const total = finiteOr(totalTokens, 0);
+  const overTokens = total > minTokens;
+  const overPct = Number.isFinite(contextWindowTokens) && contextWindowTokens > 0 && total / contextWindowTokens * 100 > minPct;
+  return overTokens || overPct
+    ? deferred(`Kiro toolSearch: MCP schemas exceed ${minPct}% of the window or ${minTokens} tokens`)
+    : upfront(`Kiro toolSearch: MCP schemas are under ${minPct}% of the window and ${minTokens} tokens`);
+}
+
+function mcpLoading(harness, options = {}) {
   if (harness === 'claude') return claudeLoading(options);
   if (harness === 'codex') return deferred('Codex defers MCP tools behind tool search');
+  if (harness === 'kiro') return kiroLoading(options);
   return upfront('deferred loading is not documented for this agent; counted as loaded');
 }
 
@@ -89,25 +116,37 @@ function claudeEnv(home, workspace, env) {
   return Object.assign({}, env, ...layers);
 }
 
+/// Kiro reads ~/.kiro/settings/cli.json, overridden per workspace.
+function kiroSettings(home, workspace) {
+  return Object.assign({},
+    readJson(path.join(home, '.kiro', 'settings', 'cli.json')),
+    readJson(path.join(workspace, '.kiro', 'settings', 'cli.json')));
+}
+
+function harnessTotal(servers, harness) {
+  return servers
+    .filter((server) => server.harness === harness)
+    .reduce((total, server) => total + (Number.isFinite(server.estimatedTokens) ? server.estimatedTokens : 0), 0);
+}
+
 /// A new cache with `loading` on every server. Decided at read time, not stored,
 /// because the settings that decide it can change after mcp-scan ran.
 function annotateLoading(mcpCost, { home, workspace, env = process.env, contextWindows = {} }) {
   if (!mcpCost || !Array.isArray(mcpCost.servers)) return mcpCost;
   const effectiveClaudeEnv = claudeEnv(home, workspace, env);
   const claudeConfigs = new Map(claudeMcpServerStates(home, workspace).map((server) => [server.name, server.config]));
-  const claudeTotal = mcpCost.servers
-    .filter((server) => server.harness === 'claude')
-    .reduce((total, server) => total + (Number.isFinite(server.estimatedTokens) ? server.estimatedTokens : 0), 0);
+  const settings = kiroSettings(home, workspace);
   const servers = mcpCost.servers.map((server) => ({
     ...server,
     loading: mcpLoading(server.harness, {
       env: effectiveClaudeEnv,
+      settings,
       alwaysLoad: claudeConfigs.get(server.name)?.alwaysLoad === true,
-      totalTokens: claudeTotal,
+      totalTokens: harnessTotal(mcpCost.servers, server.harness),
       contextWindowTokens: contextWindows[server.harness] ?? null,
     }),
   }));
   return { ...mcpCost, servers };
 }
 
-module.exports = { annotateLoading, claudeLoading, mcpLoading, startupTokens };
+module.exports = { annotateLoading, claudeLoading, kiroLoading, mcpLoading, startupTokens };
