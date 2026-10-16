@@ -35,7 +35,7 @@ ctxmeter mcp-scan --i-understand-this-launches-servers
 
 # 3. 비싼 것부터 끄기. 먼저 dry run; --disable은 백업하고 되돌리는 명령을 출력합니다.
 ctxmeter fix
-ctxmeter fix --disable kiro/playwright           # --enable로 다시 켜기
+ctxmeter fix --disable claude/plugin:aws-core@agent-toolkit-for-aws  # --enable로 다시 켜기
 
 # 나머지
 ctxmeter --help
@@ -64,13 +64,13 @@ git clone https://github.com/HaeDalWang/ctxmeter.git && cd ctxmeter
 
 **플러그인 번들을 깔고 잊어버렸습니다.** 스킬 그룹 하나에 스킬이 수백 개 들어 있을 수 있고, 각각의 frontmatter가 시작 때 로드됩니다. ctxmeter는 순위를 매겨 가장 큰 것을 첫 줄에 보여줍니다.
 
-**에이전트를 여러 개 씁니다.** Claude Code, Codex, Kiro는 스킬·규칙·훅·MCP 설정을 각자 다른 구조로 둡니다. 셋을 모두 읽어 나란히 보여주는 도구는 이것뿐입니다.
+**에이전트를 여러 개 씁니다.** Claude Code, Codex, Kiro는 스킬·규칙·훅·MCP 설정을 각자 다른 구조로 둡니다. 셋을 모두 읽어 나란히 보여주고, 에이전트마다 실측한 세션 시작값을 추정치 옆에 둡니다.
 
-## 아무도 재지 않는 MCP 측정
+## MCP 측정
 
 MCP 도구 스키마는 **실제 프롬프트 안에만** 존재합니다 — 로컬 파일 어디에도 없습니다. 그래서 정직하게 재려면 각 서버를 띄워서 물어봐야 합니다.
 
-시작 비용이 되는지는 에이전트마다 다릅니다. Claude Code와 Codex는 기본적으로 MCP 도구를 tool search 뒤에 두고, 모델이 찾을 때만 스키마를 로드합니다. Kiro는 이런 지연 로딩을 문서화하지 않았으므로 ctxmeter는 로드된 것으로 셉니다. Claude는 `ENABLE_TOOL_SEARCH=false`, 서드파티 프록시를 가리키는 `ANTHROPIC_BASE_URL`, `alwaysLoad`로 표시한 서버가 있으면 다시 전부 미리 로드합니다. ctxmeter는 이 설정을 읽어 로드분과 지연분을 따로 보고합니다.
+시작 비용이 되는지는 에이전트마다 다릅니다. Claude Code, Codex, Kiro(IDE 1.3+, CLI V3 세션)는 모두 기본적으로 MCP 도구를 tool search 뒤에 두고, 모델이 찾을 때만 스키마를 로드합니다. Kiro CLI V2는 `toolSearch.enabled`를 켜지 않으면 미리 로드합니다. Claude는 `ENABLE_TOOL_SEARCH=false`, 서드파티 프록시를 가리키는 `ANTHROPIC_BASE_URL`, `alwaysLoad`로 표시한 서버가 있으면 다시 전부 미리 로드합니다. ctxmeter는 이 설정을 읽어 로드분과 지연분을 따로 보고합니다.
 
 읽기 전용 약속과 충돌하므로 명시적 플래그가 필요한 별도 명령입니다.
 
@@ -80,15 +80,15 @@ ctxmeter mcp-scan --i-understand-this-launches-servers
 ```
 
 ```
-MCP tool schemas: 8,914 tokens load at startup; 8,963 more load only when a tool is used.
+MCP tool schemas: none load at startup; all 17,877 tokens load only when a tool is used.
 
   codex/code-review-graph: 7,298 tokens, 30 tools — deferred
-  kiro/playwright: 4,352 tokens, 25 tools
-  kiro/aws-mcp: 2,892 tokens, 8 tools
-  kiro/context7: 1,148 tokens, 2 tools
+  kiro/playwright: 4,352 tokens, 25 tools — deferred
+  kiro/aws-mcp: 2,892 tokens, 8 tools — deferred
+  kiro/context7: 1,148 tokens, 2 tools — deferred
   codex/shadcn: 1,124 tokens, 7 tools — deferred
   codex/node_repl: 541 tokens, 4 tools — deferred
-  kiro/exa: 522 tokens, 2 tools
+  kiro/exa: 522 tokens, 2 tools — deferred
 ```
 
 서버별 타임아웃과 강제 종료, 원격 서버는 명시하지 않으면 건너뜀, 스키마는 개수를 센 뒤 버립니다. 꺼 둔 서버는 절대 띄우지 않습니다. 결과는 캐시되어 `ctxmeter` 점검에 합쳐집니다. 지연 로드되는 서버는 목록에는 나오지만 `fix`가 제안하지 않습니다. 꺼도 시작 비용이 거의 줄지 않기 때문입니다.
@@ -99,22 +99,22 @@ MCP tool schemas: 8,914 tokens load at startup; 8,963 more load only when a tool
 
 ```bash
 ctxmeter fix                                  # dry run, 아무것도 바꾸지 않음
-ctxmeter fix --disable kiro/playwright         # 한 번에 하나씩
+ctxmeter fix --disable claude/plugin:aws-core@agent-toolkit-for-aws  # 한 번에 하나씩
 ```
 
 ```
-13,262 tokens sit behind 11 switches you can flip.
+4,464 tokens sit behind 9 switches you can flip.
 
-     4,352  kiro/playwright, 25 tools
-            "playwright" in ~/.kiro/settings/mcp.json
-     2,892  kiro/aws-mcp, 8 tools
-            "aws-mcp" in ~/.kiro/settings/mcp.json
      1,890  claude/plugin:aws-core@agent-toolkit-for-aws, 13 skills
             "aws-core@agent-toolkit-for-aws" in ~/.claude/settings.json
+       739  claude/plugin:ponytail@ponytail, 6 skills
+            "ponytail@ponytail" in ~/.claude/settings.json
+       486  codex/plugin:ponytail@ponytail, 6 skills
+            [plugins."ponytail@ponytail"] in ~/.codex/config.toml
        ...
 
 Nothing has been changed. To switch one off:
-  ctxmeter fix --disable kiro/playwright
+  ctxmeter fix --disable claude/plugin:aws-core@agent-toolkit-for-aws
 ```
 
 Claude 플러그인은 `~/.claude/settings.json`의 `enabledPlugins`로 켜고 끕니다. Claude MCP 서버는 대상 대신 `/mcp` 안내로 표시됩니다. 끄는 스위치가 `~/.claude.json`에 있는데, Claude가 실행 중에 이 파일을 다시 쓰기 때문에 ctxmeter는 건드리지 않습니다.
@@ -122,7 +122,7 @@ Claude 플러그인은 `~/.claude/settings.json`의 `enabledPlugins`로 켜고 �
 적용하면 원본 옆에 백업을 쓰고 되돌리는 명령을 출력합니다.
 
 ```
-Switched off codex/plugin:ponytail@ponytail, freeing about 739 tokens at startup.
+Switched off codex/plugin:ponytail@ponytail, freeing about 486 tokens at startup.
 
   changed  ~/.codex/config.toml
   backup   ~/.codex/config.toml.ctxmeter-2026-09-24T13-43-48-623Z.bak

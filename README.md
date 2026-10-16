@@ -35,7 +35,7 @@ ctxmeter mcp-scan --i-understand-this-launches-servers
 
 # 3. Switch the expensive ones off. Dry run first; --disable backs up and prints the undo.
 ctxmeter fix
-ctxmeter fix --disable kiro/playwright           # --enable turns it back on
+ctxmeter fix --disable claude/plugin:aws-core@agent-toolkit-for-aws  # --enable turns it back on
 
 # Everything else
 ctxmeter --help
@@ -64,13 +64,13 @@ Measure, then act. Two surfaces over the same numbers: the CLI for a one-shot au
 
 **You installed a plugin bundle and forgot.** One skill group can list hundreds of skills, and every one contributes frontmatter at startup. ctxmeter ranks them so the biggest is the first line you read.
 
-**You run more than one agent.** Claude Code, Codex, and Kiro each keep their own skills, rules, hooks, and MCP config in their own layout. This reads all three and puts them side by side — the only tool that does.
+**You run more than one agent.** Claude Code, Codex, and Kiro each keep their own skills, rules, hooks, and MCP config in their own layout. This reads all three and puts them side by side, with each agent's observed session start next to its estimate.
 
-## Measuring MCP, the part nobody else measures
+## Measuring MCP
 
 MCP tool schemas exist **only in the live prompt** — no local file contains them. So measuring honestly means starting each server and asking it.
 
-Whether they cost anything at startup depends on the agent. Claude Code and Codex keep MCP tools behind a tool search by default and load a schema only when the model looks for it; Kiro documents no such deferral, so ctxmeter counts its servers as loaded. Claude loads everything upfront again if you set `ENABLE_TOOL_SEARCH=false`, point `ANTHROPIC_BASE_URL` at a third-party proxy, or mark a server `alwaysLoad`. ctxmeter reads those settings and reports loaded and deferred separately.
+Whether they cost anything at startup depends on the agent. Claude Code, Codex, and Kiro (IDE 1.3+, CLI V3 sessions) all keep MCP tools behind a tool search by default and load a schema only when the model looks for it. Kiro CLI V2 preloads them unless `toolSearch.enabled` is set; Claude loads everything upfront again if you set `ENABLE_TOOL_SEARCH=false`, point `ANTHROPIC_BASE_URL` at a third-party proxy, or mark a server `alwaysLoad`. ctxmeter reads those settings and reports loaded and deferred separately.
 
 That contradicts a read-only promise, so it is a separate command behind an explicit flag:
 
@@ -80,15 +80,15 @@ ctxmeter mcp-scan --i-understand-this-launches-servers
 ```
 
 ```
-MCP tool schemas: 8,914 tokens load at startup; 8,963 more load only when a tool is used.
+MCP tool schemas: none load at startup; all 17,877 tokens load only when a tool is used.
 
   codex/code-review-graph: 7,298 tokens, 30 tools — deferred
-  kiro/playwright: 4,352 tokens, 25 tools
-  kiro/aws-mcp: 2,892 tokens, 8 tools
-  kiro/context7: 1,148 tokens, 2 tools
+  kiro/playwright: 4,352 tokens, 25 tools — deferred
+  kiro/aws-mcp: 2,892 tokens, 8 tools — deferred
+  kiro/context7: 1,148 tokens, 2 tools — deferred
   codex/shadcn: 1,124 tokens, 7 tools — deferred
   codex/node_repl: 541 tokens, 4 tools — deferred
-  kiro/exa: 522 tokens, 2 tools
+  kiro/exa: 522 tokens, 2 tools — deferred
 ```
 
 Per-server timeouts, hard kills, remote servers skipped unless you opt in, and schemas discarded after counting. Servers you have switched off are never started. The result is cached so `ctxmeter` folds it into the audit. Deferred servers are listed but not offered by `fix`, because switching them off frees almost nothing at startup.
@@ -99,22 +99,22 @@ Knowing the number is half of it. `fix` turns each finding into one edit, and th
 
 ```bash
 ctxmeter fix                                  # dry run, changes nothing
-ctxmeter fix --disable kiro/playwright         # one target at a time
+ctxmeter fix --disable claude/plugin:aws-core@agent-toolkit-for-aws  # one target at a time
 ```
 
 ```
-13,262 tokens sit behind 11 switches you can flip.
+4,464 tokens sit behind 9 switches you can flip.
 
-     4,352  kiro/playwright, 25 tools
-            "playwright" in ~/.kiro/settings/mcp.json
-     2,892  kiro/aws-mcp, 8 tools
-            "aws-mcp" in ~/.kiro/settings/mcp.json
      1,890  claude/plugin:aws-core@agent-toolkit-for-aws, 13 skills
             "aws-core@agent-toolkit-for-aws" in ~/.claude/settings.json
+       739  claude/plugin:ponytail@ponytail, 6 skills
+            "ponytail@ponytail" in ~/.claude/settings.json
+       486  codex/plugin:ponytail@ponytail, 6 skills
+            [plugins."ponytail@ponytail"] in ~/.codex/config.toml
        ...
 
 Nothing has been changed. To switch one off:
-  ctxmeter fix --disable kiro/playwright
+  ctxmeter fix --disable claude/plugin:aws-core@agent-toolkit-for-aws
 ```
 
 Claude plugins switch through `enabledPlugins` in `~/.claude/settings.json`. Claude MCP servers are listed with the `/mcp` step instead of a target: their off switch lives in `~/.claude.json`, which Claude rewrites while it runs, so ctxmeter does not edit it.
@@ -122,7 +122,7 @@ Claude plugins switch through `enabledPlugins` in `~/.claude/settings.json`. Cla
 Applying writes a backup next to the original and prints the undo command:
 
 ```
-Switched off codex/plugin:ponytail@ponytail, freeing about 739 tokens at startup.
+Switched off codex/plugin:ponytail@ponytail, freeing about 486 tokens at startup.
 
   changed  ~/.codex/config.toml
   backup   ~/.codex/config.toml.ctxmeter-2026-09-24T13-43-48-623Z.bak

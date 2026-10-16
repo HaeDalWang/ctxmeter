@@ -10,6 +10,12 @@
 
 우선순위: **P0** 런칭 전에 반드시 · **P1** 청중과 엔진 · **P2** 깊이. 크기: S(반나절) · M(1~2일) · L(3일 이상).
 
+**2026-10-16 갱신(`research/05`):** Kiro도 MCP를 지연 로딩한다(v0.1.3에서 반영). 로그 기반 미사용 감지(P2-1)는 10개 넘는 도구와 Claude `/skill-doctor`가 이미 한다 → 우선순위를 내림. 새 P0:
+- **P0-6** Claude `api-request-shape`(2.1.300+)로 실제 전송된 system·tools 크기 실측 · M
+- **P0-7** workspace·계층 지침 계상(`CLAUDE.md`·`@import`·`AGENTS.md` 계층·`.kiro/steering`) · M
+- **P0-8** 세션 로그 읽기 성능(최근 N개·스트리밍) + Swift `CLIRunner` timeout · M
+- **P1-13** 시작 비용 drift 알림: 업데이트 뒤 시작 비용이 오르면 원인 항목과 함께 알림 · M
+
 ---
 
 ## P0 — 신뢰와 첫 화면 (런칭 전에 반드시)

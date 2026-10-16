@@ -4,7 +4,7 @@ Detailed behaviour, data sources, and measurement limits. For the short version 
 
 # ctxmeter
 
-Local, read-only observability for Claude Code, Codex, and Kiro configuration.
+Local observability for Claude Code, Codex, and Kiro configuration. Read-only except `mcp-scan` and `fix`, both behind explicit flags.
 
 ctxmeter answers three questions without copying prompt or secret contents:
 
@@ -55,7 +55,7 @@ An enabled server is not necessarily in the startup prompt. `src/tool-loading.js
 |---|---|---|
 | Claude Code | deferred by default; upfront when `alwaysLoad: true` is on the server, `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS` is set, `ENABLE_TOOL_SEARCH=false`, `ANTHROPIC_BASE_URL` is not `api.anthropic.com`, or `ENABLE_TOOL_SEARCH=auto[:N]` and the Claude MCP total is at most N% (default 10) of the window | [tool search docs](https://code.claude.com/docs/en/agent-sdk/tool-search) |
 | Codex | always deferred | `codex-rs/features/src/lib.rs` |
-| Kiro | counted as loaded | nothing documents deferral |
+| Kiro | deferred for IDE 1.3+ and CLI V3 sessions; for `chat.agentEngine` v1/v2 in `~/.kiro/settings/cli.json` (workspace `.kiro/settings/cli.json` overrides), upfront unless `toolSearch.enabled` is true, then deferred past `toolSearch.minPct` (5) % of the window or `toolSearch.minTokens` (50,000) | [Kiro tool search docs](https://kiro.dev/docs/mcp/tool-search/) |
 
 Claude's env is the shell's, overlaid by `env` in `~/.claude/settings.json`, `<workspace>/.claude/settings.json`, and `settings.local.json`. `auto` with an unknown window counts as loaded. A deferred server reports `tokens: null` and `deferredTokens` in `details`, is listed with `— deferred` by `mcp-scan`, appears as one "load only on use" line in the audit, and is not offered by `fix`.
 
@@ -71,6 +71,8 @@ The audit's first line is measured, not estimated: the input context of the firs
 - TOML is edited line by line: the section's line range is located, an existing `enabled` line is replaced, or `enabled = false` is inserted after the header. The file is never reserialized, so comments and unrelated sections keep their bytes. A section that is missing, or that appears twice, is refused.
 - JSON is parsed and reserialized at two-space indent. Key order and the trailing newline are preserved, and the result is reparsed to confirm the edit and the ordering survived before anything is written. A file that will not parse — JSONC with comments, a trailing comma — is refused rather than repaired.
 - Applying the same target twice is refused rather than rewriting.
+- The file is read again just before writing. If the agent rewrote it after the plan was made, nothing is written and the command asks to be run again; otherwise the agent's change would be lost.
+- The new content goes to a temporary file in the same directory and is renamed over the original, keeping its permission bits. A symlinked config is written at its target, so the link survives.
 - There is no undo log. The printed `cp` is the undo, and it works after ctxmeter is uninstalled.
 - `CLAUDE.md`, `AGENTS.md`, rule files, steering documents, and skills you wrote are reported but never edited. Those are content; an MCP server is a setting.
 
