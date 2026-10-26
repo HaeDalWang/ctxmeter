@@ -1,0 +1,102 @@
+# Decision 09 — 에이전트 헬스 비전: 독보적인 조연
+
+Date 2026-10-24. Status: **proposed (비전)**. `08`이 방향과 첫 단계라면, 이 문서는 도착지다.
+표기: confirmed = 로컬 데이터·공식 문서·소스로 확인 / hypothesis = 추론, 확인 방법 함께 / unknown = 모름.
+
+## 모토
+
+> 불가능은 이 세상에 없다. 다만 좀 어려울 수 있을 뿐이다.
+
+직접 잴 수 없는 값은 계산식으로 추론해 유사값을 만든다. 단, 모든 숫자에 출처를 붙인다(아래 "지키는 장치").
+
+## 한 줄
+
+사용자의 모든 AI 코딩 에이전트 옆에 붙어서 **한도 사용률을 기준으로 설정·행동 하나하나의 몫을 계산하고, 보여 주고,
+무엇을 바꿀지 추천하고, 백신 앱처럼 주기적으로 전체를 검진하는** 서브 앱. 에이전트를 대신하지 않는 조연이다.
+
+시작점은 만든 사람 본인의 문제다(`08` "왜"). 본인이 매일 쓰게 되는가가 1차 기준이다.
+
+## 조연의 자리
+
+| 도구 | 답하는 질문 | 데이터 |
+|---|---|---|
+| CodexBar, Orca 사용량 바, usage-gauge | 얼마 남았나, 언제 바닥나나 | 사용량 API(비공식 포함)·statusLine |
+| Claude `/context`, Kiro `/context show` | 지금 이 세션에 무엇이 실렸나 | 자기 에이전트 하나 |
+| **이 앱** | **왜 줄었나, 무엇을 바꾸면 몇 %p가 돌아오나** | 위 둘 + 로그 + 환율 |
+
+CodexBar·Orca가 한도를 얻는 방법 (confirmed, 소스 2026-10-24):
+- Claude: `GET api.anthropic.com/api/oauth/usage` (Keychain의 Claude Code OAuth 토큰, `anthropic-beta: oauth-2025-04-20`) → CLI PTY → claude.ai 쿠키. Orca는 폴링이 429를 맞아 statusLine `rate_limits`를 주 경로로 쓴다.
+- Codex: `GET chatgpt.com/backend-api/wham/usage` (`~/.codex/auth.json` 토큰), `codex app-server` RPC `account/rateLimits/updated`.
+- 달러 금액은 로컬 로그 토큰 × API 정가 추정이다(화면 문구로 확인).
+
+우리는 비공식 API 없이 간다. Codex는 rollout `token_count`에 한도 %가 있고, Claude는 statusLine JSON의
+`rate_limits.five_hour/seven_day.used_percentage`(Pro·Max)가 **공식 문서**에 있다(code.claude.com/docs/en/statusline).
+문서 예시는 소수(23.5)지만 이 머신의 실제 값은 정수였다(2026-10-24 기록 확인) → Codex처럼 창 단위 회귀가 필요하다.
+
+## 구조: 여섯 층
+
+| 층 | 하는 일 | 상태 (2026-10-24) |
+|---|---|---|
+| 1. 측정 | 한도 %(Codex rollout, Claude statusLine), Kiro 턴별 크레딧 | Codex·Kiro 가능. Claude는 statusLine 기록부터 |
+| 2. 환율 | 토큰 종류·모델별 "1%p = 몇 토큰" | Codex 5시간: 검증 R² 0.92 (`08` 참고). 주간은 표본 부족 |
+| 3. 분해 | 설정 항목·행동 패턴을 각각 %p로 | ctxmeter 항목 측정 × 환율 (아래 식) |
+| 4. 시각화 | 체성분(설정) · 활동량(턴 × 컨텍스트) · 칼로리(%p) | 메뉴바 기반 있음 |
+| 5. 코칭 | "이걸 바꾸면 주간 한도 X%p 절약" | 실행 수단은 `fix`(백업·되돌리기) |
+| 6. 정기 검진 | 주 1회 전체 스캔, 변화·새 누수 알림 | `score.py` 주간 성적표가 출발점 |
+
+## 분해 계산식 (3층)
+
+항목 하나의 한도 몫 (hypothesis — 계수는 confirmed, 항목 단위로 나누는 방식은 추론):
+
+```
+몫(%p) ≈ 항목 토큰 × (창 안의 요청 수)   × w_cached
+       + 항목 토큰 × (캐시 미스 횟수)     × w_uncached
+
+Codex Plus 5시간: w_cached ≈ 1%p / 742K, w_uncached ≈ 1%p / 66K, 출력 ≈ 1%p / 5.5K
+```
+
+- 예: 2,000토큰 스킬 묶음이 요청 300번에 실리면 2,000 × 300 / 742K ≈ **0.8%p**.
+- 예: 컨텍스트 25만, 거의 캐시된 요청 하나 ≈ 0.34%p → 폴링 한 번이 한도의 0.3%p.
+- 행동 패턴(대기 폴링, 압축 후 이미지 누적, 마라톤 세션)도 "그 패턴이 만든 요청 수 × 그때의 컨텍스트"로 같은 단위가 된다.
+- 확인 방법: 항목 하나를 끈 주와 켠 주의 한도 소모를 비교한다(6층 검진이 이 A/B를 자동으로 돌린다).
+
+### 첫 분해 결과 (2026-10-24, Codex 최근 14일, `~/.local/share/agent-usage-audit/reports/2026-10-24-decompose.md`)
+
+- 창당 요청 수 중앙값 139 · p90 213 (confirmed). 창당 실제 사용률 중앙값 53% · p90 100% (confirmed, rollout 직접 집계).
+- 시작 비용 전체(20,661 토큰)의 몫: 중앙값 창 4.5%p · p90 창 7.6%p (추론). 1위 AGENTS.md 0.97%p, 에이전트 기본 3.08%p.
+- **즉 한도 소모의 약 90%는 설정이 아니라 세션 활동(턴 수 × 커지는 컨텍스트, 도구 출력)에서 나온다** (추론).
+  ctxmeter v0.3이 재는 "체성분"은 작은 레버이고, 큰 레버는 "활동량"이다 → `08` #4 흐름 진단이 다음 우선순위.
+
+## 지키는 장치
+
+추론값으로 모든 것을 계산하기 때문에, 숫자마다 출처와 오차를 붙인다. 막는 규칙이 아니라 추론을 마음껏 쓰게 해 주는 장치다.
+
+- **실측**: 로그·공식 필드에 그대로 있는 값 (예: Codex 한도 %, Kiro 크레딧)
+- **추정 (±오차)**: 회귀로 얻은 환율과 그 검증 범위 (예: 1%p ≈ 742K 캐시 입력, fold 범위 717~810K)
+- **추론**: 추정 × 측정을 조합한 값 (예: "aws-core 스킬 ≈ 주간 3%p")
+- 로컬 전용, 텔레메트리 없음, transcript 원문 복사·색인 금지(`08` 원칙 유지). 설정 변경은 사용자 동의 + 백업 + 되돌리기 명령.
+
+## 이름
+
+`decisions/02`의 기준(npm 비어 있음 + 같은 이름 저장소 0~1개)으로 2026-10-24에 확인 (confirmed):
+agentpacer(0), ctxcoach(0), tokcal(0), quotacoach(0), ctxhealth(0). 1순위 **agentpacer** — "한 달을 못 버틴다"를
+페이스 조절이라는 한 단어로 가리킨다. 상표(KIPRIS·USPTO)·도메인은 unknown — 확정 전에 확인.
+기존 `ctxmeter` npm은 unpublish가 아니라 `npm deprecate`로 새 이름을 안내한다(되돌릴 수 없는 단계, 실행 전 확인).
+
+## 순서
+
+1. ✅ Claude statusLine `rate_limits` 기록 시작 (2026-10-24). 래퍼 `~/.local/bin/claude-statusline-ratelog`가
+   숫자만 `~/.local/share/agent-usage-audit/data/claude-ratelimits.jsonl`에 남기고 원래 statusLine(Orca)으로 그대로 넘긴다
+2. 3층 분해 프로토타입: Codex 환율 × ctxmeter 항목 측정 → "내 설정 항목별 한도 %p" 표
+3. ✅ `08` 첫 단계 #4 흐름 진단 규칙 3개 (2026-10-26, 결과는 `08` 표)
+   - ✅ 6층 첫 형태 (2026-10-26): `weekly.sh`를 launchd(`local.agent-usage-audit.weekly`, 월 10:00)로 돌려
+     `reports/<날짜>-weekly.md` + 알림 한 줄. 마라톤 규칙에 기간 조건은 요청 200개 이상(20일 동안 요청 52번뿐인 세션 오탐 제거).
+     **2026-11-09까지 본인이 써 보고** 알림을 보고 실제로 무엇을 바꿨는지로 개편 범위를 정한다
+4. Claude 환율 회귀 (기록이 창 수십 개 쌓인 뒤)
+5. 이름 확정 → 개편 → 재런칭 한 번에
+
+## Open questions
+
+- 다른 플랜(Pro·Max·Pro+)과 모델에서 환율이 같은가 — 다른 사람 데이터 필요.
+- 주간 한도 환율 — 창이 11개뿐이라 표본 부족. 몇 주 더 쌓은 뒤 재회귀.
+- 정기 검진의 형태: launchd 주간 실행 + 메뉴바 알림인가, 에이전트 안 스킬인가.

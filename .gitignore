@@ -7,3 +7,5 @@ menubar/Package.resolved
 # Demo recording artifacts. docs/demo.gif is committed; these are inputs to it.
 .demo-frames/
 .vhs-bin/
+# Added by code-review-graph
+.code-review-graph/
