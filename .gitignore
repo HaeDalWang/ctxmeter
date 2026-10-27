@@ -9,3 +9,12 @@ menubar/Package.resolved
 .vhs-bin/
 # Added by code-review-graph
 .code-review-graph/
+# Local agent and tool setup (code-review-graph install, personal notes). Not part of the project.
+.claude/
+.kiro/
+.vscode/
+.mcp.json
+AGENTS.md
+CLAUDE.md
+.github/code-review-graph.instruction.md
+디자인참고-링크.md
